@@ -1,6 +1,8 @@
-# AcmeClient
+# acme_client
 
-**TODO: Add description**
+Elixir client for the ACME certificate management protocol
+[RFC8555](https://tools.ietf.org/html/rfc8555) used by
+[Let's Encrypt](https://letsencrypt.org/) and other certification authorities.
 
 ## Installation
 
@@ -18,4 +20,3 @@ end
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
 be found at [https://hexdocs.pm/acme_client](https://hexdocs.pm/acme_client).
-
