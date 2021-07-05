@@ -26,10 +26,27 @@ defmodule AcmeClient do
     :world
   end
 
-  # https://acme-v02.api.letsencrypt.org/directory or
-  # https://acme-staging-v02.api.letsencrypt.org/directory
 
-  @doc "Create session"
+  @doc ~S"""
+  Create new session connecting to ACME server."
+
+  This sets up Tesla to talk to the server, then reads the directory URL.
+
+  Params:
+
+  * directory_url: Server directory URL, which gives references to other endpoints.
+                   Defaults to `https://acme-staging-v02.api.letsencrypt.org/directory`.
+                   For production, `https://acme-v02.api.letsencrypt.org/directory`
+  * middleware: Tesla middlewares (optional)
+  * adapter: Tesla adapter (optional)
+  * account_key: ACME account key (optional)
+
+  ## Examples
+
+    contact = "mailto:admin@example.com"
+    {:ok, account_key} = AcmeClient.generate_account_key()
+    {:ok, session, account} = AcmeClient.create_account(account_key: account_key, contact: contact)
+  """
   @spec new_session(Keyword.t()) :: {:ok, Session.t()} | {:error, term()}
   def new_session(opts \\ []) do
     directory_url = opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -111,11 +128,12 @@ defmodule AcmeClient do
   Params:
 
   * account_key: Account key, from `generate_account_key/1`
-  * contact: Account owner contact, e.g. "mailto:jake@cogini.com"
+  * contact: Account owner contact(s), e.g. "mailto:jake@cogini.com" (optional)
+  * terms_of_service_agreed: true (optional)
+  * only_return_existing: true (optional)
+  * external_account_binding: associated external account (optional)
 
   ## Examples
-
-    {:ok, session}
 
     {:ok, account_key} = AcmeClient.generate_account_key()
     params = [
@@ -123,6 +141,8 @@ defmodule AcmeClient do
       contact: "mailto:admin@example.com",
       terms_of_service_agreed: true,
     ]
+    {:ok, session} = new_session()
+    {:ok, session} = new_nonce(session)
     {:ok, session, account} = AcmeClient.create_account(params)
   """
   @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()}
@@ -165,25 +185,6 @@ defmodule AcmeClient do
     :proplists.get_value("replay-nonce", headers, nil)
   end
 
-  defp reduce_account_params({:contact, value}, acc) when is_list(value) do
-    Map.put(acc, "contact", value)
-  end
-  defp reduce_account_params({:contact, value}, acc) when is_binary(value) do
-    Map.put(acc, "contact", [value])
-  end
-  defp reduce_account_params({:terms_of_service_agreed, true}, acc) do
-    Map.put(acc, "termsOfServiceAgreed", true)
-  end
-  defp reduce_account_params({:external_account_binding, value}, acc) do
-    Map.put(acc, "externalAccountBinding", value)
-  end
-  defp reduce_account_params(_, acc), do: acc
-
-  def to_jwk(account_key) do
-    {_modules, public_map} = JOSE.JWK.to_public_map(account_key)
-    public_map
-  end
-
   @doc ~S"""
   Create client to talk to server..
 
@@ -223,6 +224,35 @@ defmodule AcmeClient do
   end
 
   # Internal utility functions
+
+  # Convert new_account/2 params to name/format required by API
+  defp reduce_account_params({:contact, value}, acc) when is_list(value) do
+    Map.put(acc, "contact", value)
+  end
+
+  defp reduce_account_params({:contact, value}, acc) when is_binary(value) do
+    Map.put(acc, "contact", [value])
+  end
+
+  defp reduce_account_params({:terms_of_service_agreed, true}, acc) do
+    Map.put(acc, "termsOfServiceAgreed", true)
+  end
+
+  defp reduce_account_params({:only_return_existing, true}, acc) do
+    Map.put(acc, "onlyReturnExisting", true)
+  end
+
+  defp reduce_account_params({:external_account_binding, value}, acc) do
+    Map.put(acc, "externalAccountBinding", value)
+  end
+
+  defp reduce_account_params(_, acc), do: acc
+
+  # Convert key to JWK representation
+  defp to_jwk(account_key) do
+    {_modules, public_map} = JOSE.JWK.to_public_map(account_key)
+    public_map
+  end
 
   @spec do_get(Tesla.Client.t(), binary()) :: {:ok, map()} | {:error, map()}
   defp do_get(client, url) do
