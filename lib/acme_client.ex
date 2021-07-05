@@ -112,6 +112,9 @@ defmodule AcmeClient do
   #
   # <key_authorization>
 
+  # DNS challenge
+  # _acme-challenge.www.example.org. 300 IN TXT "<key_authorization>"
+
   @doc ~S"""
   Create key authorization from key and token.
 
@@ -356,10 +359,9 @@ defmodule AcmeClient do
   end
 
   @spec post_as_get(Session.t(), binary()) :: {:ok, Session.t(), term()} | {:error, term()}
-  def post_as_get(session, url) do
+  def post_as_get(session, url, payload \\ "") do
     %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
     req_headers = [{"content-type", "application/jose+json"}]
-    payload = ""
 
     protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
     {_, body} = JOSE.JWS.sign(account_key, payload, protected)
