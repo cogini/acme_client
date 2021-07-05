@@ -103,6 +103,20 @@ defmodule AcmeClient do
   #   JOSE.JWK.generate_key({:rsa, key_size})
   # end
 
+  @doc ~S"""
+  Generate RFC7638 thumbprint of key.
+
+  ## Examples
+
+    AcmeClient.thumbprint_key(session.account_key)
+  """
+  @spec thumbprint_key(JOSE.JWK.t()) :: binary()
+  def thumbprint_key(key) do
+    key
+    |> JOSE.JWK.to_thumbprint_map()
+    |> JOSE.JWK.thumbprint()
+  end
+
   # %{
   #   "contact" => ["mailto:jake@cogini.com"],
   #   "createdAt" => "2021-01-21T02:25:34.191981376Z",
