@@ -6,6 +6,7 @@ defmodule AcmeClient do
   alias AcmeClient.Session
 
   @type code :: non_neg_integer()
+  @type client :: Tesla.Env.client()
   @type reason :: any()
   @type nonce :: binary()
   @type request_ret :: {:ok, Session.t(), term()} | {:error, Session.t(), term()} | {:error, term()}
@@ -72,33 +73,58 @@ defmodule AcmeClient do
     end
   end
 
-  # def generate_account_key(params) do
-  #   key_size = params[:key_size] || 2048
-  #   JOSE.JWK.generate_key({:rsa, key_size})
-  # end
-
-  @doc "Generate a cryptographic key for account"
+  @doc "Generate cryptographic key for account"
   @spec generate_account_key(Keyword.t()) :: {:ok, JOSE.JWK.t()}
   def generate_account_key(params \\ []) do
     alg = params[:alg] || "ES256"
     {:ok, JOSE.JWS.generate_key(%{"alg" => alg})}
   end
+  # def generate_account_key(params) do
+  #   key_size = params[:key_size] || 2048
+  #   JOSE.JWK.generate_key({:rsa, key_size})
+  # end
 
-  # @spec new_account(map(), Keyword.t()) :: {:ok, session :: map(), result || map()} | {:error, session :: map(), result :: map()}
   # %{
-  # "contact" => ["mailto:jake@cogini.com"],
-  # "createdAt" => "2021-01-21T02:25:34.191981376Z",
-  # "initialIp" => "123.194.199.220",
-  # "key" => %{
-  #   "alg" => "ES256",
-  #   "crv" => "P-256",
-  #   "kty" => "EC",
-  #   "use" => "sig",
-  #   "x" => "kk1Lezgf2nsLAc2_Is8pP2KGJRTvTBF2EfPpJgRxWuo",
-  #   "y" => "iDsb47bohf2_HMTfo5BGwp4PrjGce7jicc7Jix4B5Yg"
-  # },
-  # "status" => "valid"
+  #   "contact" => ["mailto:jake@cogini.com"],
+  #   "createdAt" => "2021-01-21T02:25:34.191981376Z",
+  #   "initialIp" => "123.194.199.220",
+  #   "key" => %{
+  #     "alg" => "ES256",
+  #     "crv" => "P-256",
+  #     "kty" => "EC",
+  #     "use" => "sig",
+  #     "x" => "kk1Lezgf2nsLAc2_Is8pP2KGJRTvTBF2EfPpJgRxWuo",
+  #     "y" => "iDsb47bohf2_HMTfo5BGwp4PrjGce7jicc7Jix4B5Yg"
+  #   },
+  #   "status" => "valid"
+  # }}
+  #
+  # %{
+  #   "detail" => "must agree to terms of service",
+  #   "status" => 400,
+  #   "type" => "urn:ietf:params:acme:error:malformed"
   # }
+
+  @doc ~S"""
+  Create new account.
+
+  Params:
+
+  * account_key: Account key, from `generate_account_key/1`
+  * contact: Account owner contact, e.g. "mailto:jake@cogini.com"
+
+  ## Examples
+
+    {:ok, session}
+
+    {:ok, account_key} = AcmeClient.generate_account_key()
+    params = [
+      account_key: account_key,
+      contact: "mailto:admin@example.com",
+      terms_of_service_agreed: true,
+    ]
+    {:ok, session, account} = AcmeClient.create_account(params)
+  """
   @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()}
   def new_account(session, opts) do
     %{client: client, directory: directory, account_key: account_key, nonce: nonce} = session
@@ -114,7 +140,8 @@ defmodule AcmeClient do
     {_, body} = JOSE.JWS.sign(account_key, payload, protected)
 
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
-      {:ok, %{status: status, headers: headers} = result} when status in [200, 201] ->
+      # returns 201 on initial create, 200 if called again
+      {:ok, %{status: status, headers: headers} = result} when status in [201, 200] ->
         session = set_nonce(session, headers)
         value = %{
           account: result.body,
@@ -127,27 +154,6 @@ defmodule AcmeClient do
         {:error, reason}
     end
   end
-
- # %{
- #   "detail" => "must agree to terms of service",
- #   "status" => 400,
- #   "type" => "urn:ietf:params:acme:error:malformed"
- # }
-
- # %{
- #   "contact" => ["mailto:jake@cogini.com"],
- #   "createdAt" => "2021-01-21T02:25:34.191981376Z",
- #   "initialIp" => "123.194.199.220",
- #   "key" => %{
- #     "alg" => "ES256",
- #     "crv" => "P-256",
- #     "kty" => "EC",
- #     "use" => "sig",
- #     "x" => "kk1Lezgf2nsLAc2_Is8pP2KGJRTvTBF2EfPpJgRxWuo",
- #     "y" => "iDsb47bohf2_HMTfo5BGwp4PrjGce7jicc7Jix4B5Yg"
- #   },
- #   "status" => "valid"
- # }}
 
   @spec update_nonce(Session.t(), headers()) :: Session.t()
   def update_nonce(session, headers) do
@@ -267,15 +273,9 @@ defmodule AcmeClient do
 
   ## Examples
 
-      iex> {:ok, account} = AcmeClient.create_account(contact: "mailto:admin@example.com")
-      %Tesla.Client{
-        adapter: nil,
-        fun: nil,
-        post: [],
-        pre: [
-          {Tesla.Middleware.BaseUrl, :call, ["http://localhost:8081"]},
-        ]
-      }
+    contact = "mailto:admin@example.com"
+    {:ok, account_key} = AcmeClient.generate_account_key()
+    {:ok, session, account} = AcmeClient.create_account(account_key: account_key, contact: contact)
   """
   @spec create_account(Keyword.t()) :: request_ret()
   def create_account(params) do
