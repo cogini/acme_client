@@ -103,6 +103,25 @@ defmodule AcmeClient do
   #   JOSE.JWK.generate_key({:rsa, key_size})
   # end
 
+  # HTTP challenge
+  # url = "/.well-known/acme-challenge/" <> token
+  #
+  # Response
+  # HTTP/1.1 200 OK
+  # Content-Type: application/octet-stream
+  #
+  # <key_authorization>
+
+  @doc ~S"""
+  Create key authorization from key and token.
+
+  https://datatracker.ietf.org/doc/html/rfc8555#section-8.1
+  """
+  @spec create_key_authorization(JOSE.JWK.t(), binary()) :: binary()
+  def create_key_authorization(key, token) do
+    token <> "." <> thumbprint_key(key)
+  end
+
   @doc ~S"""
   Generate RFC7638 thumbprint of key.
 
