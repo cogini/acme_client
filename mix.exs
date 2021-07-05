@@ -2,11 +2,12 @@ defmodule AcmeClient.MixProject do
   use Mix.Project
 
   @github "https://github.com/cogini/acme_client"
+  @version "0.1.0"
 
   def project do
     [
       app: :acme_client,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.11",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -38,13 +39,15 @@ defmodule AcmeClient.MixProject do
   defp extra_applications(:test), do: [:hackney]
   defp extra_applications(_),     do: []
 
-  # Specifies which paths to compile per environment
+  # Paths to compile per environment
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_),     do: ["lib"]
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:castore, "~> 0.1"},
+      {:jose, "~> 1.10"},
       {:credo, "~> 1.5", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.23.0", only: :dev, runtime: false},
@@ -53,6 +56,7 @@ defmodule AcmeClient.MixProject do
       {:jason, "~> 1.0"},
       {:telemetry, "~> 0.4.2"},
       {:tesla, "~> 1.4"},
+      {:x509, "~> 0.8.2"},
     ]
   end
 
@@ -62,15 +66,23 @@ defmodule AcmeClient.MixProject do
 
   defp package do
     [
+      description: description(),
       maintainers: ["Jake Morrison"],
       licenses: ["Apache 2.0"],
-      links: %{"GitHub" => @github}
+      links: %{
+        "GitHub" => @github,
+        "Changelog" => "#{@github}/blob/#{@version}/CHANGELOG.md##{
+          String.replace(@version, ".", "")
+        }"
+      }
     ]
   end
 
   defp docs do
     [
+      main: "readme",
       source_url: @github,
+      source_ref: @version,
       extras: ["README.md", "CHANGELOG.md"],
       # api_reference: false,
       source_url_pattern: "#{@github}/blob/master/%{path}#L%{line}",
