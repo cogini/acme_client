@@ -322,6 +322,26 @@ defmodule AcmeClient do
     new_nonce(session)
   end
 
+  @spec post_as_get(Session.t(), binary()) :: {:ok, Session.t(), term()} | {:error, term()}
+  def post_as_get(session, url) do
+    %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
+    req_headers = [{"content-type", "application/jose+json"}]
+    payload = ""
+
+    protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
+    {_, body} = JOSE.JWS.sign(account_key, payload, protected)
+
+    case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
+      {:ok, %{status: 200, headers: headers} = result} ->
+        session = set_nonce(session, headers)
+        {:ok, session, result}
+      {:ok, %{headers: headers} = result} ->
+        {:error, set_nonce(session, headers), result}
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   @doc ~S"""
   Create Tesla client.
 
@@ -390,6 +410,7 @@ defmodule AcmeClient do
   def binary_to_key(bin) do
     JOSE.JWK.from_binary(bin)
   end
+
 
   @spec do_get(Tesla.Client.t(), binary()) :: {:ok, map()} | {:error, map()}
   def do_get(client, url) do
