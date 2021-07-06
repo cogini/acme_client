@@ -116,13 +116,13 @@ defmodule AcmeClient do
   # _acme-challenge.www.example.org. 300 IN TXT "<key_authorization>"
 
   @doc ~S"""
-  Create key authorization from key and token.
+  Create key authorization from token and key.
 
   https://datatracker.ietf.org/doc/html/rfc8555#section-8.1
   """
-  @spec create_key_authorization(JOSE.JWK.t(), binary()) :: binary()
-  def create_key_authorization(key, token) do
-    token <> "." <> thumbprint_key(key)
+  @spec key_authorization(binary(), JOSE.JWK.t()) :: binary()
+  def key_authorization(token, key) do
+    token <> "." <> key_thumbprint(key)
   end
 
   @doc ~S"""
@@ -130,13 +130,27 @@ defmodule AcmeClient do
 
   ## Examples
 
-    AcmeClient.thumbprint_key(session.account_key)
+    AcmeClient.key_thumbprint(session.account_key)
   """
-  @spec thumbprint_key(JOSE.JWK.t()) :: binary()
-  def thumbprint_key(key) do
+  @spec key_thumbprint(JOSE.JWK.t()) :: binary()
+  def key_thumbprint(key) do
     key
     |> JOSE.JWK.to_thumbprint_map()
     |> JOSE.JWK.thumbprint()
+  end
+
+  @doc ~S"""
+  Generate DNS validation value.
+
+  https://datatracker.ietf.org/doc/html/rfc8555#section-8.4
+
+  """
+  def dns_validation(token, key) do
+    token
+    |> key_authorization(key)
+    |> (&(:crypto.hash(:sha256, &1))).()
+    |> Base.url_encode64(case: :lower)
+    # |> Base.url_encode64(padding: false, case: :lower)
   end
 
   # %{
