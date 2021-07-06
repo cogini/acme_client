@@ -272,8 +272,6 @@ defmodule AcmeClient do
 
   defp reduce_new_account_opts(_, acc), do: acc
 
-
-
   @doc ~S"""
   Create HTTP challenge URL for token.
 
@@ -422,17 +420,30 @@ defmodule AcmeClient do
   def create_challenge_responses(session, order_url) do
     {:ok, session, order} = AcmeClient.post_as_get(session, order_url)
     {:ok, session, authorizations} = AcmeClient.get_urls(session, order.body["authorizations"])
-    for {_url, authorization} <- authorizations do
-      authorization_to_challenge_response(authorization, session.account_key)
+    for {url, authorization} <- authorizations do
+      {url, authorization_response(authorization, session.account_key)}
     end
   end
 
-  def authorization_to_challenge_response(authorization, key) do
-    %{"challenges" => challenges, "identifier" => %{"value" => domain}} = authorization
-    for %{"type" => type, "token" => token} <- challenges, type == "dns-01" do
-      {domain, dns_challenge_response(token, key)}
-    end
+  def authorization_response(authorization, key) do
+    # %{"challenges" => challenges, "identifier" => %{"value" => domain}} = authorization
+    # %{"challenges" => challenges, "identifier" => %{"value" => domain}} = authorization
+    challenges =
+      for challenge <- authorization["challenges"] do
+        challenge_add_response(challenge, key)
+      end
+    Map.put(authorization, "challenges", challenges)
   end
+
+  def challenge_add_response(%{"type" => "dns-01", "token" => token} = challenge, key) do
+    Map.put(challenge, "response", dns_challenge_response(token, key))
+  end
+
+  def challenge_add_response(%{"type" => "http-01", "token" => token} = challenge, key) do
+    Map.put(challenge, "response", key_authorization(token, key))
+  end
+
+  def challenge_add_response(challenge, _key), do: challenge
 
   # def create_order(session, opts) do
   #   {:ok, session, order} = AcmeClient.new_order(session, opts)
