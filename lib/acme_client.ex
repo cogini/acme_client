@@ -276,7 +276,7 @@ defmodule AcmeClient do
     {_, body} = JOSE.JWS.sign(account_key, payload, protected)
 
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
-      {:ok, %{status: status, headers: headers} = result} when status in [201] ->
+      {:ok, %{status: status, headers: headers} = result} when status in [200] ->
         session = set_nonce(session, headers)
         value = %{
           object: result.body,
@@ -320,6 +320,30 @@ defmodule AcmeClient do
   defp convert_new_order_identifier(value) when is_map(value) do
     value
   end
+
+  def get_order_challenges(session, authorizations) do
+    {session, results} =
+      Enum.reduce(authorizations, {session, []},
+        fn url, {session, acc} ->
+          {:ok, session, result} = AcmeClient.post_as_get(session, url)
+          {session, [{url, result.body} | acc]}
+        end)
+    {:ok, session, Enum.reverse(results)}
+  end
+
+  def create_validations(challenge_objects, key) do
+    for {_url, %{"challenges" => challenges, "identifier" => %{"value" => domain}}} <- challenge_objects,
+      %{"type" => type, "token" => token} <- challenges,
+      type == "dns-01"
+    do
+      {domain, dns_validation(token, key)}
+    end
+  end
+
+  # def create_order(session, opts) do
+  #   {:ok, session, order} = AcmeClient.new_order(session, opts)
+  #   {:ok, session, challenges} = AcmeClient.get_order_challenges(session, order)
+  # end
 
   @doc ~S"""
   Set up session then create account."
@@ -372,6 +396,7 @@ defmodule AcmeClient do
     new_nonce(session)
   end
 
+  @doc "Perform POST-as-GET HTTP call"
   @spec post_as_get(Session.t(), binary()) :: {:ok, Session.t(), term()} | {:error, term()}
   def post_as_get(session, url, payload \\ "") do
     %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
@@ -433,14 +458,20 @@ defmodule AcmeClient do
 
   # Internal utility functions
 
-  @spec update_nonce(Session.t(), headers()) :: Session.t()
-  def update_nonce(session, headers) do
-    %{session | nonce: :proplists.get_value("replay-nonce", headers)}
+  # Set session nonce from server response headers
+  @spec set_nonce(Session.t(), headers()) :: Session.t()
+  defp set_nonce(session, headers) do
+    %{session | nonce: extract_nonce(headers)}
   end
 
   @spec extract_nonce(headers()) :: binary() | nil
   def extract_nonce(headers) do
     :proplists.get_value("replay-nonce", headers, nil)
+  end
+
+  @spec update_nonce(Session.t(), headers()) :: Session.t()
+  def update_nonce(session, headers) do
+    %{session | nonce: :proplists.get_value("replay-nonce", headers)}
   end
 
   # Convert key to JWK representation used in API
@@ -492,11 +523,5 @@ defmodule AcmeClient do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  # Set session nonce from server response headers
-  @spec set_nonce(Session.t(), headers()) :: Session.t()
-  defp set_nonce(session, headers) do
-    %{session | nonce: extract_nonce(headers)}
   end
 end
