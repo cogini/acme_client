@@ -22,7 +22,7 @@ defmodule AcmeClient.MixProject do
         # plt_add_apps: [:erlavro, :tesla],
         # plt_add_deps: true,
         # flags: ["-Werror_handling", "-Wrace_conditions"],
-        flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
+        # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
         # ignore_warnings: "dialyzer.ignore-warnings"
       ],
       deps: deps(),
