@@ -385,7 +385,6 @@ defmodule AcmeClient do
   end
 
 
-  # @spec create_challenge_responses(map()) ::
   # %{
   #     "authorizations" => ["https://acme-staging-v02.api.letsencrypt.org/acme/authz-v3/82803238",
   #      "https://acme-staging-v02.api.letsencrypt.org/acme/authz-v3/82803239"],
@@ -397,17 +396,23 @@ defmodule AcmeClient do
   #     ],
   #     "status" => "pending"
   # },
+  @spec create_challenge_responses(Session.t(), binary()) :: {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
   def create_challenge_responses(session, order_url) do
-    {:ok, session, order} = AcmeClient.post_as_get(session, order_url)
-    {:ok, session, authorizations} = AcmeClient.get_urls(session, order.body["authorizations"])
-    for {url, authorization} <- authorizations do
-      {url, authorization_response(authorization, session.account_key)}
+    key = session.account_key
+    with {:ok, session, order} <- AcmeClient.post_as_get(session, order_url),
+         {:ok, session, authorizations} <- AcmeClient.get_urls(session, order.body["authorizations"])
+    do
+      responses =
+        for {url, authorization} <- authorizations do
+          {url, authorization_response(authorization, key)}
+        end
+      {:ok, session, responses}
+    else
+      err -> err
     end
   end
 
   def authorization_response(authorization, key) do
-    # %{"challenges" => challenges, "identifier" => %{"value" => domain}} = authorization
-    # %{"challenges" => challenges, "identifier" => %{"value" => domain}} = authorization
     challenges =
       for challenge <- authorization["challenges"] do
         challenge_add_response(challenge, key)
