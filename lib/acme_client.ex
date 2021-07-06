@@ -225,9 +225,20 @@ defmodule AcmeClient do
     url = directory["newAccount"]
     req_headers = [{"content-type", "application/jose+json"}]
 
+    map_opts =
+      fn
+        {:contact, value} = pair when is_list(value) -> pair
+        {:contact, value} when is_binary(value) -> {:contact, [value]}
+        {:terms_of_service_agreed, true} -> {"termsOfServiceAgreed", true}
+        {:only_return_existing, true} -> {"onlyReturnExisting", true}
+        {:external_account_binding, value} -> {"externalAccountBinding", value}
+    end
+
     payload =
       opts
-      |> Enum.reduce(%{}, &reduce_new_account_opts/2)
+      |> Keyword.take([:contact, :terms_of_service_agreed, :only_return_existing, :external_account_binding])
+      |> Enum.map(map_opts)
+      |> Enum.into(%{})
       |> Jason.encode!()
 
     protected = %{"alg" => "ES256", "nonce" => nonce, "url" => url, jwk: to_jwk(account_key)}
@@ -248,29 +259,6 @@ defmodule AcmeClient do
         {:error, reason}
     end
   end
-
-  # Convert new_account/2 params to name/format required by API
-  defp reduce_new_account_opts({:contact, value}, acc) when is_list(value) do
-    Map.put(acc, "contact", value)
-  end
-
-  defp reduce_new_account_opts({:contact, value}, acc) when is_binary(value) do
-    Map.put(acc, "contact", [value])
-  end
-
-  defp reduce_new_account_opts({:terms_of_service_agreed, true}, acc) do
-    Map.put(acc, "termsOfServiceAgreed", true)
-  end
-
-  defp reduce_new_account_opts({:only_return_existing, true}, acc) do
-    Map.put(acc, "onlyReturnExisting", true)
-  end
-
-  defp reduce_new_account_opts({:external_account_binding, value}, acc) do
-    Map.put(acc, "externalAccountBinding", value)
-  end
-
-  defp reduce_new_account_opts(_, acc), do: acc
 
   @doc ~S"""
   Create HTTP challenge URL for token.
@@ -351,9 +339,31 @@ defmodule AcmeClient do
     url = directory["newOrder"]
     req_headers = [{"content-type", "application/jose+json"}]
 
+    map_identifier =
+      fn
+        value when is_binary(value) -> %{type: "dns", value: value}
+        value when is_map(value) -> value
+      end
+
+    map_opts =
+      fn
+        {:identifiers, value} when is_binary(value) ->
+          {:identifiers, [%{type: "dns", value: value}]}
+        {:identifiers, value} when is_map(value) ->
+          {:identifiers, [value]}
+        {:identifiers, values} when is_list(values) ->
+          {:identifiers, Enum.map(values, map_identifier)}
+        {:not_before, value} when is_binary(value) ->
+          {"notBefore", value}
+        {:not_after, value} when is_binary(value) ->
+          {"notAfter", value}
+    end
+
     payload =
       opts
-      |> Enum.reduce(%{}, &reduce_new_order_opts/2)
+      |> Keyword.take([:identifiers, :not_before, :not_after])
+      |> Enum.map(map_opts)
+      |> Enum.into(%{})
       |> Jason.encode!()
 
     protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
@@ -374,36 +384,6 @@ defmodule AcmeClient do
     end
   end
 
-  # Convert new_account/2 params to name/format required by API
-  defp reduce_new_order_opts({:identifiers, value}, acc) when is_binary(value) do
-    Map.put(acc, "identifiers", [%{type: "dns", value: value}])
-  end
-
-  defp reduce_new_order_opts({:identifiers, value}, acc) when is_map(value) do
-    Map.put(acc, "identifiers", [value])
-  end
-
-  defp reduce_new_order_opts({:identifiers, values}, acc) when is_list(values) do
-    Map.put(acc, "identifiers", Enum.map(values, &convert_new_order_identifier/1))
-  end
-
-  defp reduce_new_order_opts({:not_before, value}, acc) when is_binary(value) do
-    Map.put(acc, "notBefore", value)
-  end
-
-  defp reduce_new_order_opts({:not_after, value}, acc) when is_binary(value) do
-    Map.put(acc, "notAfter", value)
-  end
-
-  defp reduce_new_order_opts(_, acc), do: acc
-
-  defp convert_new_order_identifier(value) when is_binary(value) do
-    %{type: "dns", value: value}
-  end
-
-  defp convert_new_order_identifier(value) when is_map(value) do
-    value
-  end
 
   # @spec create_challenge_responses(map()) ::
   # %{
