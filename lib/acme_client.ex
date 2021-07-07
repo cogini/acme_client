@@ -332,6 +332,9 @@ defmodule AcmeClient do
   * not_after: datetime in RFC3339 (ISO8601) format (optional)
 
   `account_key` and `account_kid` must be set in session.
+
+  ## Examples
+    AcmeClient.new_order(session, identifiers: ["example.com", "*.example.com"])
   """
   @spec new_order(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()}
   def new_order(session, opts) do
