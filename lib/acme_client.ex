@@ -384,7 +384,12 @@ defmodule AcmeClient do
     end
   end
 
+  @doc ~S"""
+  Create challenge responses for order.
 
+  ## Examples
+    AcmeClient.create_challenge_responses(session, "https://acme-staging-v02.api.letsencrypt.org/acme/order/123/456")
+  """
   # %{
   #     "authorizations" => ["https://acme-staging-v02.api.letsencrypt.org/acme/authz-v3/82803238",
   #      "https://acme-staging-v02.api.letsencrypt.org/acme/authz-v3/82803239"],
