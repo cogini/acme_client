@@ -67,6 +67,9 @@ https://github.com/letsencrypt/boulder/blob/master/docs/acme-divergences.md
   | certificate       | certificate url                |              |
   +-------------------+--------------------------------+--------------+
 
+
+private_key = AcmeClient.Cert.new_private_key(2048)
+
 Production
 
   {:ok, account_key} = AcmeClient.generate_account_key()
@@ -74,3 +77,9 @@ Production
   {:ok, session} = AcmeClient.new_nonce(session)
 
   {:ok, session, account} = AcmeClient.new_account(session, terms_of_service_agreed: true, account_key: account_key, contact: "mailto:ssl_admin@ptl.com")
+
+{time, result} = :timer.tc(Bounce.Public.GetUaConfig, :handle, [conn])
+
+unique_domains = File.read!("/tmp/domains.txt") |> String.split("\n")
+stream = AcmeClient.Cert.pipeline(unique_domains, 10_000)
+Stream.run(stream)
