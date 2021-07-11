@@ -11,6 +11,8 @@ defmodule AcmeClient do
   @type reason :: any()
   @type nonce :: binary()
   @type request_ret :: {:ok, Session.t(), term()} | {:error, Session.t(), term()} | {:error, term()}
+  @type object_ret :: {:ok, Session.t(), map()} | {:error, Session.t(), term()} | {:error, term()}
+  @type string_ret :: {:ok, Session.t(), map()} | {:error, Session.t(), term()} | {:error, term()}
 
   @type headers :: list({binary(), binary()})
 
@@ -96,7 +98,7 @@ defmodule AcmeClient do
   end
 
   @doc ~S"""
-  Convenience function which creates a session.
+  Convenience function which creates a session configured from environment.
 
   Params:
     * directory_url (optional)
@@ -111,14 +113,8 @@ defmodule AcmeClient do
   """
   @spec create_session(Keyword.t()) :: {:ok, Session.t()} | {:error, term()}
   def create_session(params \\ []) do
-    url =
-      case Keyword.fetch(params, :directory_url) do
-        {:ok, value} ->
-          value
-        :error ->
-          Application.get_env(@app, :directory_url)
-      end
-
+    url = params[:directory_url] || Application.get_env(@app, :directory_url)
+    kid = params[:account_kid] || Application.get_env(@app, :account_kid)
     key =
       case Keyword.fetch(params, :account_key) do
         {:ok, value} ->
@@ -126,14 +122,6 @@ defmodule AcmeClient do
         :error ->
           account_key_bin = Application.get_env(@app, :account_key)
           AcmeClient.binary_to_key(account_key_bin)
-      end
-
-    kid =
-      case Keyword.fetch(params, :account_kid) do
-        {:ok, value} ->
-          value
-        :error ->
-          Application.get_env(@app, :account_kid)
       end
 
     {:ok, session} = new_session(directory_url: url, account_key: key, account_kid: kid)
@@ -150,7 +138,7 @@ defmodule AcmeClient do
   ## Examples
     {:ok, session, response} = AcmeClient.post_as_get(session, "https://acme-staging-v02.api.letsencrypt.org/acme/acct/123")
   """
-  @spec post_as_get(Session.t(), binary()) :: {:ok, Session.t(), term()} | {:error, term()}
+  @spec post_as_get(Session.t(), binary()) :: request_ret()
   def post_as_get(session, url, payload \\ "") do
     %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
     req_headers = [{"content-type", "application/jose+json"}]
@@ -194,7 +182,6 @@ defmodule AcmeClient do
   #   key_size = opts[:key_size] || 2048
   #   JOSE.JWK.generate_key({:rsa, key_size})
   # end
-
 
   @doc ~S"""
   Create new ACME account.
@@ -328,26 +315,33 @@ defmodule AcmeClient do
   Params:
 
   * identifiers: domain(s), either binary value or type/value map
-  * not_before: datetime in RFC3339 (ISO8601) format (optional)
-  * not_after: datetime in RFC3339 (ISO8601) format (optional)
+  * not_before: datetime in RFC3339 (ISO8601) format (optional), not supported by Let's Encrypt
+  * not_after: datetime in RFC3339 (ISO8601) format (optional), not supported by Let's Encrypt
 
   `account_key` and `account_kid` must be set in session.
 
+  On success, returns map where `location` is the URL of the created order and
+  `object` has its attributes. Make sure to keep track of the URL, or it may be
+  impossible to complete the order. The Let's Encrypt API does not support the
+  ability to get the outstanding orders for an acount, as specified in RFC8555.
+
   ## Examples
     AcmeClient.new_order(session, identifiers: ["example.com", "*.example.com"])
-  """
-  @spec new_order(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()}
-  def new_order(session, opts) do
-    %{client: client, directory: directory, account_key: account_key, account_kid: kid, nonce: nonce} = session
-    url = directory["newOrder"]
-    req_headers = [{"content-type", "application/jose+json"}]
 
+  """
+  @spec new_order(Session.t(), Keyword.t()) :: object_ret()
+  def new_order(session, opts) do
+    %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
+    url = session.directory["newOrder"]
+
+    # Convert string identifier to DNS map
     map_identifier =
       fn
         value when is_binary(value) -> %{type: "dns", value: value}
         value when is_map(value) -> value
       end
 
+    # Convert input opts
     map_opts =
       fn
         {:identifiers, value} when is_binary(value) ->
@@ -372,6 +366,8 @@ defmodule AcmeClient do
     protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
     {_, body} = JOSE.JWS.sign(account_key, payload, protected)
 
+    req_headers = [{"content-type", "application/jose+json"}]
+
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
       {:ok, %{status: status, headers: headers} = result} when status in [200] ->
         session = set_nonce(session, headers)
@@ -393,34 +389,25 @@ defmodule AcmeClient do
   ## Examples
     AcmeClient.create_challenge_responses(session, "https://acme-staging-v02.api.letsencrypt.org/acme/order/123/456")
   """
-  # %{
-  #     "authorizations" => ["https://acme-staging-v02.api.letsencrypt.org/acme/authz-v3/82803238",
-  #      "https://acme-staging-v02.api.letsencrypt.org/acme/authz-v3/82803239"],
-  #     "expires" => "2021-07-12T20:22:34Z",
-  #     "finalize" => "https://acme-staging-v02.api.letsencrypt.org/acme/finalize/20177848/94029681",
-  #     "identifiers" => [
-  #       %{"type" => "dns", "value" => "cogini.com"},
-  #       %{"type" => "dns", "value" => "www.cogini.com"}
-  #     ],
-  #     "status" => "pending"
-  # },
-  @spec create_challenge_responses(Session.t(), binary()) :: {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
-  def create_challenge_responses(session, order_url) do
+  @spec create_challenge_responses(Session.t(), map()) :: {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
+  def create_challenge_responses(session, order) do
     key = session.account_key
-    with {:ok, session, order} <- AcmeClient.post_as_get(session, order_url),
-         {:ok, session, authorizations} <- AcmeClient.get_urls(session, order.body["authorizations"])
+    with {:ok, session, authorizations} <- AcmeClient.get_urls(session, order["authorizations"])
     do
-      responses =
+      authorizations =
         for {url, authorization} <- authorizations do
-          {url, authorization_response(authorization, key)}
+          {url, create_authorization_response(authorization, key)}
         end
-      {:ok, session, responses}
+      {:ok, session, authorizations}
     else
       err -> err
     end
   end
 
-  def authorization_response(authorization, key) do
+
+  # Generate challenge respones and add to authorization map
+  @spec create_authorization_response(map(), binary()) :: map()
+  defp create_authorization_response(authorization, key) do
     challenges =
       for challenge <- authorization["challenges"] do
         challenge_add_response(challenge, key)
@@ -438,10 +425,33 @@ defmodule AcmeClient do
 
   def challenge_add_response(challenge, _key), do: challenge
 
-  # def create_order(session, opts) do
-  #   {:ok, session, order} = AcmeClient.new_order(session, opts)
-  #   {:ok, session, challenges} = AcmeClient.get_order_challenges(session, order)
-  # end
+
+  # Convenience function
+  @spec create_order(Session.t(), Keyword.t()) :: request_ret()
+  def create_order(session, opts) do
+    with {:ok, session, order} <- AcmeClient.new_order(session, opts),
+         {:ok, session, authorizations} <- AcmeClient.create_challenge_responses(session, order.object)
+    do
+      {:ok, session, {order, authorizations}}
+    else
+      err -> err
+    end
+  end
+
+  @spec get_status(Session.t(), binary()) :: string_ret()
+  def get_status(session, url) do
+    case post_as_get(session, url) do
+      {:ok, session, result} ->
+        {:ok, session, result.body["status"]}
+      error -> error
+    end
+  end
+
+  # {
+  #   "type": "urn:ietf:params:acme:error:badNonce",
+  #   "detail": "JWS has an invalid anti-replay nonce: \"0002t4XOF7rhtseQk6TdCqyU-Sk1U6l-gK9M2_aHT3We1bo\"",
+  #   "status": 400
+  # }
 
   @doc ~S"""
   Create Tesla client.
@@ -555,4 +565,15 @@ defmodule AcmeClient do
         {:error, reason}
     end
   end
+
+
+  # https://letsencrypt.org/docs/rate-limits/
+  # 300 New Orders per account per 3 hours
+
+  # urn:ietf:params:acme:error:rateLimited
+  # Retry-After = HTTP-date / delay-seconds
+  # A delay-seconds value is a non-negative decimal integer, representing time in seconds.
+
+  #  Retry-After: Fri, 31 Dec 1999 23:59:59 GMT
+  #  Retry-After: 120
 end
