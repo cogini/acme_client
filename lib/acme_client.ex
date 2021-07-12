@@ -157,6 +157,45 @@ defmodule AcmeClient do
     end
   end
 
+  def get_order(session, url) do
+    case post_as_get(session, url) do
+      {:ok, session, result} ->
+        {:ok, session, result.body}
+      error ->
+        error
+    end
+  end
+
+  @spec get_object(Session.t(), binary()) :: object_ret()
+  def get_object(session, url) do
+    case post_as_get(session, url) do
+      {:ok, session, result} ->
+        {:ok, session, result.body}
+      error ->
+        error
+    end
+  end
+
+  @spec get_authorizations(Session.t(), list(binary())) :: object_ret()
+  def get_authorizations(session, urls) do
+    {session, results} =
+      Enum.reduce(urls, {session, []},
+        fn url, {session, acc} ->
+          case AcmeClient.post_as_get(session, url) do
+            {:ok, session, result} ->
+              {session, [result.body | acc]}
+            {:error, session, reason} ->
+              Logger.error("Error reading #{url}: #{inspect(reason)}")
+              {session, acc}
+            {:error, reason} ->
+              Logger.error("Error reading #{url}: #{inspect(reason)}")
+              {session, acc}
+          end
+        end)
+    {:ok, session, Enum.reverse(results)}
+  end
+
+
   @doc "Get a list of URLs with post_as_get"
   @spec get_urls(Session.t(), list(binary())) :: {:ok, Session.t(), term()}
   def get_urls(session, urls) do
@@ -168,6 +207,24 @@ defmodule AcmeClient do
         end)
     {:ok, session, Enum.reverse(results)}
   end
+
+  @doc "Get status of url"
+  @spec get_status(Session.t(), binary()) :: string_ret()
+  def get_status(session, url) do
+    case post_as_get(session, url) do
+      {:ok, session, result} ->
+        {:ok, session, result.body["status"]}
+      error -> error
+    end
+  end
+
+  @doc "Make request to URL to tell server it can start processing"
+  @spec poke_url(Session.t(), binary()) :: request_ret()
+  def poke_url(session, url) do
+    post_as_get(session, url, "{}")
+  end
+
+
 
   @doc ~S"""
   Generate JWS cryptographic key for account.
@@ -237,7 +294,7 @@ defmodule AcmeClient do
         session = set_nonce(session, headers)
         value = %{
           object: result.body,
-          location: :proplists.get_value("location", headers, nil)
+          url: :proplists.get_value("location", headers, nil)
         }
         {:ok, session, value}
       {:ok, %{headers: headers} = result} ->
@@ -308,6 +365,37 @@ defmodule AcmeClient do
     |> Base.url_encode64(padding: false, case: :lower)
   end
 
+  def dns_challenge_name(%{"type" => "dns", "value" => domain}) do
+    "_acme-challenge." <> domain
+  end
+  def dns_challenge_name("*." <> domain) do
+    "_acme-challenge." <> domain
+  end
+  def dns_challenge_name(domain) when is_binary(domain) do
+    "_acme-challenge." <> domain
+  end
+
+  def dns_validate(%{"status" => "pending"} = authorization) do
+    %{"identifier" => identifier, "challenges" => challenges} = authorization
+
+    host = dns_challenge_name(identifier)
+    case :inet_res.lookup(to_charlist(host), :in, :txt) do
+      [] ->
+        authorization
+      values ->
+        values = for [value | _rest] <- values, do: to_string(value)
+    end
+  end
+
+  @spec dns_txt_records(binary()) :: list(binary())
+  def dns_txt_records(host) do
+    case :inet_res.lookup(to_charlist(host), :in, :txt) do
+      [] ->
+        []
+      values ->
+        for [value | _rest] <- values, do: to_string(value)
+    end
+  end
 
   @doc ~S"""
   Create new order.
@@ -320,7 +408,7 @@ defmodule AcmeClient do
 
   `account_key` and `account_kid` must be set in session.
 
-  On success, returns map where `location` is the URL of the created order and
+  On success, returns map where `url` is the URL of the created order and
   `object` has its attributes. Make sure to keep track of the URL, or it may be
   impossible to complete the order. The Let's Encrypt API does not support the
   ability to get the outstanding orders for an acount, as specified in RFC8555.
@@ -373,7 +461,7 @@ defmodule AcmeClient do
         session = set_nonce(session, headers)
         value = %{
           object: result.body,
-          location: :proplists.get_value("location", headers, nil)
+          url: :proplists.get_value("location", headers, nil)
         }
         {:ok, session, value}
       {:ok, %{headers: headers} = result} ->
@@ -403,7 +491,6 @@ defmodule AcmeClient do
       err -> err
     end
   end
-
 
   # Generate challenge respones and add to authorization map
   @spec create_authorization_response(map(), binary()) :: map()
@@ -435,15 +522,6 @@ defmodule AcmeClient do
       {:ok, session, {order, authorizations}}
     else
       err -> err
-    end
-  end
-
-  @spec get_status(Session.t(), binary()) :: string_ret()
-  def get_status(session, url) do
-    case post_as_get(session, url) do
-      {:ok, session, result} ->
-        {:ok, session, result.body["status"]}
-      error -> error
     end
   end
 
