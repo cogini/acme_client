@@ -457,7 +457,7 @@ defmodule AcmeClient do
     req_headers = [{"content-type", "application/jose+json"}]
 
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
-      {:ok, %{status: status, headers: headers} = result} when status in [200] ->
+      {:ok, %{status: status, headers: headers} = result} when status in [201, 200] ->
         session = set_nonce(session, headers)
         value = %{
           object: result.body,
