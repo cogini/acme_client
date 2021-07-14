@@ -9,6 +9,7 @@ defmodule AcmeClient.Session do
     client: nil,
     nonce: "",
     directory: %{}, # url map
+    cb_mod: nil,
   ]
 
   @type t :: %__MODULE__{
@@ -17,5 +18,6 @@ defmodule AcmeClient.Session do
     client: Tesla.Client.t(),
     nonce: binary(),
     directory: map(),
+    cb_mod: module(),
   }
 end

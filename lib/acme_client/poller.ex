@@ -70,6 +70,7 @@ defmodule AcmeClient.Poller do
       url: args[:url],
       order: args[:order],
       session: nil,
+      cb_mod: args[:cb_mod],
     }
 
     {:ok, state}
@@ -109,6 +110,7 @@ defmodule AcmeClient.Poller do
     with {:ok, session} <- AcmeClient.create_session(),
          {:ok, session, order} <- AcmeClient.get_object(session, url)
     do
+      session = Map.put(session, :cb_mod, state.cb_mod)
       _session = Enum.reduce(order["authorizations"], session, &process_authorization/2)
       {:noreply, %{state | order: order}}
     else
@@ -153,7 +155,10 @@ defmodule AcmeClient.Poller do
     with {:ok, session} <- AcmeClient.create_session(),
          {:ok, _session, certificate} <- AcmeClient.get_object(session, order["certificate"])
     do
-      Logger.info("certificate: #{certificate}")
+      Logger.debug("certificate: #{certificate}")
+      if state.cb_mod do
+        apply(state.cb_mod, :certificate, [order["identifiers"], certificate])
+      end
       {:stop, :normal, state}
     else
       err ->
@@ -195,7 +200,7 @@ defmodule AcmeClient.Poller do
   end
 
   def process_authorization(%{"status" => "pending"} = authorization, session) do
-    %{"identifier" => %{"type" => "dns", "value" => domain}} = authorization
+    %{"identifier" => %{"type" => "dns", "value" => domain} = identifier} = authorization
     Logger.info("authorization: #{inspect(authorization)}")
 
     process_challenge =
@@ -206,6 +211,10 @@ defmodule AcmeClient.Poller do
           %{"token" => token, "url" => url} = challenge
           response = AcmeClient.dns_challenge_response(token, session.account_key)
           Logger.info("challenge: #{inspect(challenge)}")
+
+          if session.cb_mod do
+            apply(session.cb_mod, :challenge_response, [identifier, challenge, response])
+          end
 
           host = AcmeClient.dns_challenge_name(domain)
           txt_records = AcmeClient.dns_txt_records(host)
