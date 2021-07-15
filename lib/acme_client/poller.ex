@@ -61,10 +61,8 @@ defmodule AcmeClient.Poller do
   def init(args) do
     poll_interval = args[:poll_interval] || 10_000
 
-    {:ok, timer} = :timer.send_interval(poll_interval, :timeout)
-
     state = %{
-      timer: timer,
+      timer: nil,
       poll_interval: poll_interval,
       identifiers: args[:identifiers],
       url: args[:url],
@@ -73,7 +71,17 @@ defmodule AcmeClient.Poller do
       cb_mod: args[:cb_mod],
     }
 
-    {:ok, state}
+    # {:ok, state}
+    {:ok, state, {:continue, :spread}}
+  end
+
+  @impl true
+  def handle_continue(:spread, state) do
+    # Sleep for a random amount of time to spread out the load from multiple
+    # polling processes evenly
+    Process.sleep(:rand.uniform(state.poll_interval))
+    {:ok, timer} = :timer.send_interval(state.poll_interval, :timeout)
+    {:noreply, %{state | timer: timer}}
   end
 
   @impl true
