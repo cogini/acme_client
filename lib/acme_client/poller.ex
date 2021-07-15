@@ -102,7 +102,7 @@ defmodule AcmeClient.Poller do
 
   # Order objects are created in the "pending" state. Once all of the
   # authorizations listed in the order object are in the "valid" state, the
-  # order transitions to the "ready" state. 
+  # order transitions to the "ready" state.
 
   # Authorization objects are created in the "pending" state.  If one of the
   # challenges listed in the authorization transitions to the "valid" state, then
@@ -118,8 +118,17 @@ defmodule AcmeClient.Poller do
     with {:ok, session} <- AcmeClient.create_session(),
          {:ok, session, order} <- AcmeClient.get_object(session, url)
     do
-      session = Map.put(session, :cb_mod, state.cb_mod)
-      _session = Enum.reduce(order["authorizations"], session, &process_authorization/2)
+      cb_mod = state.cb_mod
+      session = Map.put(session, :cb_mod, cb_mod)
+      {_session, authorizations} =
+        Enum.reduce(order["authorizations"], {session, []}, &process_authorization/2)
+      Logger.info("#{url}: authorizations: #{inspect(authorizations)}")
+
+      apply(cb_mod, :process_authorizations, [order, authorizations])
+      # if function_exported?(cb_mod, :process_authorizations, 2) do
+      #   apply(cb_mod, :process_authorizations, [order, authorizations])
+      # end
+
       {:noreply, %{state | order: order}}
     else
       err ->
@@ -164,9 +173,12 @@ defmodule AcmeClient.Poller do
          {:ok, _session, certificate} <- AcmeClient.get_object(session, order["certificate"])
     do
       Logger.debug("certificate: #{certificate}")
-      if state.cb_mod do
-        apply(state.cb_mod, :certificate, [order["identifiers"], certificate])
-      end
+      cb_mod = state.cb_mod
+      apply(cb_mod, :process_certificate, [order, certificate])
+      # TODO: this doesn't work for some reason
+      # if function_exported?(cb_mod, :process_certificate, 2) do
+      #   apply(cb_mod, :process_certificate, [order, certificate])
+      # end
       {:stop, :normal, state}
     else
       err ->
@@ -177,7 +189,7 @@ defmodule AcmeClient.Poller do
 
   def handle_info(:timeout, %{order: %{"status" => status}} = state) do
     url = state.url
-    Logger.warning("#{url}: #{status}")
+    Logger.debug("#{url}: #{status}")
     with {:ok, session} <- AcmeClient.create_session(),
          {:ok, _session, order} <- AcmeClient.get_object(session, url)
     do
@@ -191,64 +203,63 @@ defmodule AcmeClient.Poller do
 
   # TODO: handle status = invalid
 
-  @spec process_authorization(binary() | map(), Session.t()) :: Session.t()
-  def process_authorization(url, session) when is_binary(url) do
+  @spec process_authorization(binary() | map(), {Session.t(), list()}) :: {Session.t(), list()}
+  def process_authorization(url, {session, results} = acc) when is_binary(url) do
     case AcmeClient.post_as_get(session, url) do
       {:ok, session, result} ->
-        process_authorization(result.body, session)
+        process_authorization(result.body, {session, results})
       err ->
         Logger.error("#{url}: error #{inspect(err)}")
-        session
+        acc
     end
   end
 
-  def process_authorization(%{"status" => "valid"}, session) do
+  def process_authorization(%{"status" => "valid"}, acc) do
     Logger.info("status: valid")
-    session
+    acc
   end
 
-  def process_authorization(%{"status" => "pending"} = authorization, session) do
-    %{"identifier" => %{"type" => "dns", "value" => domain} = identifier} = authorization
+  def process_authorization(%{"status" => "pending"} = authorization, {session, results} = acc) do
+    %{"identifier" => %{"type" => "dns", "value" => domain}} = authorization
     Logger.info("authorization: #{inspect(authorization)}")
 
     process_challenge =
-      fn 
-        %{"status" => "valid", "type" => "dns-01"}, session -> session
-        %{"status" => "processing", "type" => "dns-01"}, session -> session
-        %{"status" => "pending", "type" => "dns-01"} = challenge, session -> 
+      fn
+        %{"status" => "valid", "type" => "dns-01"}, acc -> acc
+        %{"status" => "processing", "type" => "dns-01"}, acc -> acc
+        %{"status" => "pending", "type" => "dns-01"} = challenge, {session, challenges} ->
           %{"token" => token, "url" => url} = challenge
           response = AcmeClient.dns_challenge_response(token, session.account_key)
+          challenge = Map.put(challenge, "response", response)
           Logger.info("challenge: #{inspect(challenge)}")
-
-          if session.cb_mod do
-            apply(session.cb_mod, :challenge_response, [identifier, challenge, response])
-          end
 
           host = AcmeClient.dns_challenge_name(domain)
           txt_records = AcmeClient.dns_txt_records(host)
 
           if response in txt_records do
             case AcmeClient.poke_url(session, url) do
-              {:ok, session, response} ->
-                Logger.info("#{domain}: poked #{url}: #{inspect(response)}")
-                session
+              {:ok, session, poke_result} ->
+                Logger.info("#{domain}: poked #{url}: #{inspect(poke_result)}")
               {:error, session, reason} ->
                 Logger.error("#{domain}: Error poking #{url}: #{inspect(reason)}")
-                session
             end
           else
             Logger.info("#{domain}: DNS challenge response not found for #{host}")
-            session
           end
-        _, session -> session
+          {session, [challenge | challenges]}
+        _, acc -> acc
       end
 
-    Enum.reduce(authorization["challenges"], session, process_challenge)
+    {session, challenges} =
+        Enum.reduce(authorization["challenges"], {session, []}, process_challenge)
+
+    authorization = Map.put(authorization, "challenges", challenges)
+    {session, [authorization | results]}
   end
 
-  def process_authorization(%{"status" => status}, session) do
+  def process_authorization(%{"status" => status}, acc) do
     Logger.warning("authorization status #{status}")
-    session
+    acc
   end
 
   # {
