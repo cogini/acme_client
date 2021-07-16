@@ -28,6 +28,26 @@ defmodule AcmeClient.Poller do
     | certificate       | certificate url                |              |
     +-------------------+--------------------------------+--------------+
 
+    Order status
+
+     pending --------------+
+        |                  |
+        | All authz        |
+        | "valid"          |
+        V                  |
+      ready ---------------+
+        |                  |
+        | Receive          |
+        | finalize         |
+        | request          |
+        V                  |
+    processing ------------+
+        |                  |
+        | Certificate      | Error or
+        | issued           | Authorization failure
+        V                  V
+      valid             invalid
+
   Create order
   Generate challenge responses
   Create response records
@@ -45,60 +65,70 @@ defmodule AcmeClient.Poller do
   Poll order URL for status == valid
   """
 
-  use GenServer, restart: :temporary
+  # use GenServer, restart: :temporary
+  @behavior :gen_statem
 
   require Logger
 
   def start_link(args) do
     [id | _rest] = args[:identifiers]
     name = {:via, Registry, {AcmeClient.Registry, id}}
-    GenServer.start_link(__MODULE__, args, name: name)
+    # GenServer.start_link(__MODULE__, args, name: name)
+    :gen_statem.start_link(__MODULE__, args, name: name)
   end
 
-  # GenServer callbacks
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :worker,
+      restart: :temporary,
+      shutdown: 500
+    }
+  end
 
-  @impl true
+  @impl :gen_statem
   def init(args) do
+    url = args[:url]
     poll_interval = args[:poll_interval] || 10_000
 
-    state = %{
-      timer: nil,
-      poll_interval: poll_interval,
-      identifiers: args[:identifiers],
-      url: args[:url],
-      order: args[:order],
+    data = %{
+      url: url,
       session: nil,
+      order: args[:order],
       cb_mod: args[:cb_mod],
+      poll_interval: poll_interval,
     }
 
-    # {:ok, state}
-    {:ok, state, {:continue, :spread}}
-  end
+    # Sleep for a random amount of time to spread the load from multiple
+    # polling processes
+    timeout = :rand.uniform(poll_interval)
 
-  @impl true
-  def handle_continue(:spread, state) do
-    # Sleep for a random amount of time to spread out the load from multiple
-    # polling processes evenly
-    Process.sleep(:rand.uniform(state.poll_interval))
-    {:ok, timer} = :timer.send_interval(state.poll_interval, :timeout)
-    {:noreply, %{state | timer: timer}}
-  end
-
-  @impl true
-  def handle_info(:timeout, %{order: nil} = state) do
-    url = state.url
-    Logger.info("#{url}: loading order")
     with {:ok, session} <- AcmeClient.create_session(),
-         {:ok, _session, order} <- AcmeClient.get_object(session, url)
+         {:ok, session, order} <- AcmeClient.get_object(session, url)
     do
-      state = %{state | order: order}
-      {:noreply, state}
+      data = %{data | session: session, order: order}
+      state = order_status_to_state(order)
+
+      {:ok, state, data, [timeout]}
     else
       err ->
+        # Assume it's a transient error
         Logger.error("#{url}: error #{inspect(err)}")
-        {:noreply, state}
+        {:ok, :pending, data, [timeout]}
     end
   end
+
+  # Convert order status to gen_statem state
+  defp order_status_to_state(%{"status" => "pending"}), do: :pending
+  defp order_status_to_state(%{"status" => "ready"}), do: :ready
+  defp order_status_to_state(%{"status" => "processing"}), do: :processing
+  defp order_status_to_state(%{"status" => "valid"}), do: :valid
+  defp order_status_to_state(%{"status" => "invalid"}), do: :invalid
+
+  @impl :gen_statem
+  # def callback_mode, do: :handle_event_function
+  def callback_mode, do: :state_functions
 
   # Order objects are created in the "pending" state. Once all of the
   # authorizations listed in the order object are in the "valid" state, the
@@ -112,96 +142,154 @@ defmodule AcmeClient.Poller do
   # Once the authorization is in the "valid" state, it can expire ("expired"), be
   # deactivated by the client ("deactivated", see Section 7.5.2), or revoked by the
   # server ("revoked").
-  def handle_info(:timeout, %{order: %{"status" => "pending"}} = state) do
-    url = state.url
+
+  def create_session(data) do
+    url = data.url
+    case AcmeClient.create_session() do
+      {:ok, session} ->
+        {:keep_state, %{data | session: session}}
+      {:error, reason} ->
+        Logger.error("Error creating session: #{inspect(reason)}")
+        {:keep_state, data, [data.poll_interval]}
+    end
+  end
+
+  def pending(event_type, event_content, %{session: nil} = data) do
+    create_session(data)
+  end
+
+  def pending(_event_type, _event_content, data) do
+    url = data.url
     Logger.info("#{url}: pending, processing authorizations")
-    with {:ok, session} <- AcmeClient.create_session(),
-         {:ok, session, order} <- AcmeClient.get_object(session, url)
+
+    session = data.session
+    with {:ok, session, order} <- AcmeClient.get_object(session, url)
     do
-      cb_mod = state.cb_mod
+      cb_mod = data.cb_mod
       session = Map.put(session, :cb_mod, cb_mod)
-      {_session, authorizations} =
-        Enum.reduce(order["authorizations"], {session, []}, &process_authorization/2)
-      Logger.info("#{url}: authorizations: #{inspect(authorizations)}")
 
-      apply(cb_mod, :process_authorizations, [order, authorizations])
-      # if function_exported?(cb_mod, :process_authorizations, 2) do
-      #   apply(cb_mod, :process_authorizations, [order, authorizations])
-      # end
+      case order_status_to_state(order) do
+        :pending = state ->
+          {session, authorizations} =
+            Enum.reduce(order["authorizations"], {session, []}, &process_authorization/2)
+          Logger.info("#{url}: authorizations: #{inspect(authorizations)}")
 
-      {:noreply, %{state | order: order}}
+          apply(cb_mod, :process_authorizations, [order, authorizations])
+          # if function_exported?(cb_mod, :process_authorizations, 2) do
+          #   apply(cb_mod, :process_authorizations, [order, authorizations])
+          # end
+
+          {:keep_state, %{data | session: session, order: order}, [data.poll_interval]}
+        state ->
+          # Transition to state matching order
+          Logger.info("#{url}: transition to #{state}")
+          {:next_state, state, %{data | session: session, order: order}}
+      end
     else
       err ->
         Logger.error("#{url}: error #{inspect(err)}")
-        {:noreply, state}
+        {:keep_state, %{data | session: nil}, [data.poll_interval]}
     end
   end
 
-  def handle_info(:timeout, %{order: %{"status" => "ready"}} = state) do
-    url = state.url
+  def ready(event_type, event_content, data) do
+    url = data.url
     Logger.info("#{url}: ready, finalizing")
-    with {:ok, session} <- AcmeClient.create_session(),
-         {:ok, session, order} <- AcmeClient.get_object(session, url),
-         {:ok, _session, _result} <- AcmeClient.poke_url(session, order["finalize"])
+
+    session = data.session
+    with {:ok, session, order} <- AcmeClient.get_object(session, url)
     do
-      {:noreply, %{state | order: order}}
+      case order_status_to_state(order) do
+        :ready = state ->
+          finalize_url = order["finalize"]
+          domain = get_domain(order["identifiers"])
+          cb_mod = data.cb_mod
+
+          with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(cb_mod, :get_csr, [domain])},
+               {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
+               {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
+               {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})},
+               {:finalize, {:ok, session, result}} <- {:finalize, AcmeClient.post_as_get(session, finalize_url, json)}
+          do
+              Logger.debug("#{url} csr: #{json}")
+              Logger.info("#{url} finalize #{finalize_url} result: #{inspect(result)}")
+              {:keep_state, %{data | session: session, order: order}}
+          else
+            err ->
+              Logger.error("#{url}: error #{inspect(err)}")
+              {:keep_state, %{data | session: session, order: order}}
+          end
+
+        state ->
+          # Transition to state matching order
+          Logger.info("#{url}: transition to #{state}")
+          {:next_state, state, %{data | session: session, order: order}}
+      end
     else
       err ->
         Logger.error("#{url}: error #{inspect(err)}")
-        {:noreply, state}
+        {:ok, session} = AcmeClient.create_session()
+        {:keep_state, %{data | session: session}, [data.poll_interval]}
     end
   end
 
-  def handle_info(:timeout, %{order: %{"status" => "processing"}} = state) do
-    url = state.url
+  def processing(event_type, event_content, data) do
+    url = data.url
     Logger.info("#{url}: processing, polling until valid")
-    with {:ok, session} <- AcmeClient.create_session(),
-         {:ok, _session, order} <- AcmeClient.get_object(session, url)
+
+    session = data.session
+    with {:ok, session, order} <- AcmeClient.get_object(session, url)
     do
-      {:noreply, %{state | order: order}}
+      case order_status_to_state(order) do
+        :processing = state ->
+          {:keep_state, %{data | session: session, order: order}}
+        state ->
+          # Transition to state matching order
+          Logger.info("#{url}: transition to #{state}")
+          {:next_state, state, %{data | session: session, order: order}}
+      end
     else
       err ->
         Logger.error("#{url}: error #{inspect(err)}")
-        {:noreply, state}
+        {:ok, session} = AcmeClient.create_session()
+        {:keep_state, %{data | session: session}, [data.poll_interval]}
     end
   end
 
-  def handle_info(:timeout, %{order: %{"status" => "valid"} = order} = state) do
-    url = state.url
+  def valid(event_type, event_content, data) do
+    url = data.url
     Logger.info("#{url}: valid, downloading cert")
-    with {:ok, session} <- AcmeClient.create_session(),
-         {:ok, _session, certificate} <- AcmeClient.get_object(session, order["certificate"])
+
+    # Order will still be valid from caller as this is final state
+    order = data.order
+
+    session = data.session
+    with {:ok, session, certificate} <- AcmeClient.get_object(session, order["certificate"])
     do
-      Logger.debug("certificate: #{certificate}")
-      cb_mod = state.cb_mod
-      apply(cb_mod, :process_certificate, [order, certificate])
-      # TODO: this doesn't work for some reason
-      # if function_exported?(cb_mod, :process_certificate, 2) do
-      #   apply(cb_mod, :process_certificate, [order, certificate])
-      # end
-      {:stop, :normal, state}
+      # Logger.debug("certificate: #{certificate}")
+      cb_mod = data.cb_mod
+      case apply(cb_mod, :process_certificate, [order, certificate]) do
+        :ok ->
+          {:stop, :normal, data}
+      end
     else
       err ->
         Logger.error("#{url}: error #{inspect(err)}")
-        {:noreply, state}
+        {:ok, session} = AcmeClient.create_session()
+        {:keep_state, %{data | session: session}, [data.poll_interval]}
     end
   end
 
-  def handle_info(:timeout, %{order: %{"status" => status}} = state) do
-    url = state.url
-    Logger.debug("#{url}: #{status}")
-    with {:ok, session} <- AcmeClient.create_session(),
-         {:ok, _session, order} <- AcmeClient.get_object(session, url)
-    do
-      {:noreply, %{state | order: order}}
-    else
-      err ->
-        Logger.error("#{url}: error #{inspect(err)}")
-        {:noreply, state}
-    end
-  end
+  def invalid(event_type, event_content, data) do
+    url = data.url
+    Logger.warning("#{url}: invalid order")
 
-  # TODO: handle status = invalid
+    # Order will still be valid from caller as this is final state
+
+    # TODO: handle differently?
+
+    {:stop, :normal, data}
+  end
 
   @spec process_authorization(binary() | map(), {Session.t(), list()}) :: {Session.t(), list()}
   def process_authorization(url, {session, results} = acc) when is_binary(url) do
@@ -240,13 +328,15 @@ defmodule AcmeClient.Poller do
             case AcmeClient.poke_url(session, url) do
               {:ok, session, poke_result} ->
                 Logger.info("#{domain}: poked #{url}: #{inspect(poke_result)}")
+                {session, [challenge | challenges]}
               {:error, session, reason} ->
                 Logger.error("#{domain}: Error poking #{url}: #{inspect(reason)}")
+                {session, [challenge | challenges]}
             end
           else
             Logger.info("#{domain}: DNS challenge response not found for #{host}")
+            {session, [challenge | challenges]}
           end
-          {session, [challenge | challenges]}
         _, acc -> acc
       end
 
@@ -262,31 +352,12 @@ defmodule AcmeClient.Poller do
     acc
   end
 
-  # {
-  # "identifier": {
-  #   "type": "dns",
-  #   "value": "cogini.com"
-  # },
-  # "status": "pending",
-  # "expires": "2021-07-12T20:22:34Z",
-  # "challenges": [
-  #   {
-  #     "type": "http-01",
-  #     "status": "pending",
-  #     "url": "https://acme-staging-v02.api.letsencrypt.org/acme/chall-v3/82803238/qHUWvA",
-  #     "token": "XI8WzFHrvnslnoc9JXLjACJCFhcw3PTOmCeCqGn9MME"
-  #   },
-  #   {
-  #     "type": "dns-01",
-  #     "status": "pending",
-  #     "url": "https://acme-staging-v02.api.letsencrypt.org/acme/chall-v3/82803238/21s6lw",
-  #     "token": "XI8WzFHrvnslnoc9JXLjACJCFhcw3PTOmCeCqGn9MME"
-  #   },
-  #   {
-  #     "type": "tls-alpn-01",
-  #     "status": "pending",
-  #     "url": "https://acme-staging-v02.api.letsencrypt.org/acme/chall-v3/82803238/pgQgNg",
-  #     "token": "XI8WzFHrvnslnoc9JXLjACJCFhcw3PTOmCeCqGn9MME"
-  #   }
-  # ]
+  def get_domain(identifiers) do
+    [domain | _rest] =
+      for %{"type" => type, "value" => value} <- identifiers,
+        type == "dns", not String.starts_with?(value, "*.") do
+          value
+      end
+    domain
+  end
 end
