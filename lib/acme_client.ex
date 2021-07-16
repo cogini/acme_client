@@ -69,7 +69,7 @@ defmodule AcmeClient do
       {Tesla.Middleware.JSON, decode_content_types: [
         "application/problem+json",
       ]},
-      Tesla.Middleware.Logger,
+      {Tesla.Middleware.Logger, debug: false}
     ]
 
     client = Tesla.client(middleware, adapter)
@@ -124,8 +124,13 @@ defmodule AcmeClient do
           AcmeClient.binary_to_key(account_key_bin)
       end
 
-    {:ok, session} = new_session(directory_url: url, account_key: key, account_kid: kid)
-    new_nonce(session)
+    with {:ok, session} <- new_session(directory_url: url, account_key: key, account_kid: kid),
+         {:ok, session} <- new_nonce(session)
+    do
+      {:ok, session}
+    else
+      err -> err
+    end
   end
 
 
@@ -150,6 +155,9 @@ defmodule AcmeClient do
       {:ok, %{status: 200, headers: headers} = result} ->
         session = set_nonce(session, headers)
         {:ok, session, result}
+      {:ok, %{status: 400, body: %{"type" => "urn:ietf:params:acme:error:badNonce"}} = result} ->
+        session = set_nonce(session, result.headers)
+        post_as_get(session, url, payload)
       {:ok, %{headers: headers} = result} ->
         {:error, set_nonce(session, headers), result}
       {:error, reason} ->
