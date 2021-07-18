@@ -19,7 +19,7 @@ defmodule AcmeClient.MixProject do
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [coveralls: :test, "coveralls.detail": :test, "coveralls.post": :test, "coveralls.html": :test],
       dialyzer: [
-        # plt_add_apps: [:erlavro, :tesla],
+        plt_add_apps: [:public_key],
         # plt_add_deps: true,
         # flags: ["-Werror_handling", "-Wrace_conditions"],
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
