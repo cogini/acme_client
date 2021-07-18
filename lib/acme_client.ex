@@ -66,10 +66,10 @@ defmodule AcmeClient do
     }
 
     middleware = opts_middleware ++ [
-      {Tesla.Middleware.JSON, decode_content_types: [
-        "application/problem+json",
-      ]},
-      {Tesla.Middleware.Logger, debug: false}
+      {Tesla.Middleware.JSON, decode_content_types: ["application/problem+json"]},
+      {Tesla.Middleware.Logger, debug: false},
+      # {Tesla.Middleware.Logger, debug: false, engine: Jason, engine_opts: [keys: :atoms]}
+      # {Tesla.Middleware.Logger, engine: Jason, engine_opts: [keys: :atoms!]}
     ]
 
     client = Tesla.client(middleware, adapter)
@@ -273,8 +273,8 @@ defmodule AcmeClient do
   """
   @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()} | {:error, term()}
   def new_account(session, opts) do
-    %{client: client, directory: directory, account_key: account_key, nonce: nonce} = session
-    url = directory["newAccount"]
+    %{client: client, account_key: account_key, nonce: nonce} = session
+    url = session.directory["newAccount"]
     req_headers = [{"content-type", "application/jose+json"}]
 
     map_opts =
