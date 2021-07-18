@@ -173,7 +173,7 @@ defmodule AcmeClient.Poller do
 
             case get_authorizations(session, order["authorizations"]) do
               {:ok, session, authorizations} ->
-                Logger.debug("#{url}: authorizations #{inspect(authorizations)}")
+                # Logger.debug("#{url}: authorizations #{inspect(authorizations)}")
                 responses =
                   authorizations
                   |> Enum.map(fn {_url, auth} -> create_challenge_responses(auth, key) end)
@@ -206,7 +206,7 @@ defmodule AcmeClient.Poller do
       {:ok, session, order} ->
         case order_status_to_state(order) do
           :pending ->
-            Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
+            # Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
             session =
               for {_domain, responses} <- challenge_responses, response <- responses, reduce: session do
                 nil -> nil
@@ -218,7 +218,7 @@ defmodule AcmeClient.Poller do
                   # Logger.debug("txt_records for #{host}: #{inspect(txt_records)}")
 
                   if response_code in txt_records do
-                    Logger.info("#{url}: DNS record found #{host} #{response_code}")
+                    Logger.info("#{url}: DNS found #{host} #{response_code}")
 
                     case AcmeClient.poke_url(session, ready_url) do
                       {:ok, session, poke_result} ->
@@ -232,7 +232,7 @@ defmodule AcmeClient.Poller do
                         nil
                     end
                   else
-                    Logger.info("#{url}: DNS record not found #{host} #{response_code}")
+                    Logger.info("#{url}: DNS not found #{host} #{response_code}")
                     session
                   end
               end
