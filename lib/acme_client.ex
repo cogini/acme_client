@@ -384,8 +384,8 @@ defmodule AcmeClient do
   end
 
   @spec dns_validate(map()) :: list(binary())
-  def dns_validate(%{"status" => "pending"} = authorization) do
-    %{"identifier" => identifier, "challenges" => challenges} = authorization
+  def dns_validate(authorization) do
+    %{"identifier" => identifier} = authorization
 
     host = dns_challenge_name(identifier)
     case :inet_res.lookup(to_charlist(host), :in, :txt) do
