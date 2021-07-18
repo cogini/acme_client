@@ -69,6 +69,7 @@ defmodule AcmeClient.Poller do
   @behaviour :gen_statem
 
   require Logger
+  alias AcmeClient.Session
 
   def start_link(args, opts \\ []) do
     # Logger.warning("args: #{inspect(args)}")
@@ -529,7 +530,7 @@ defmodule AcmeClient.Poller do
     {session, [c | results]}
   end
 
-  @spec create_challenge_responses(map(), binary()) :: list(map())
+  @spec create_challenge_responses(map(), JOSE.JWK.t()) :: list(map())
   def create_challenge_responses(authorization, key) do
     %{"identifier" => %{"type" => "dns", "value" => domain}} = authorization
     for challenge <- authorization["challenges"],

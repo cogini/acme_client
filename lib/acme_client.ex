@@ -184,7 +184,7 @@ defmodule AcmeClient do
     end
   end
 
-  @spec get_authorizations(Session.t(), list(binary())) :: object_ret()
+  @spec get_authorizations(Session.t(), list(binary())) :: {:ok, Session.t(), list(map())}
   def get_authorizations(session, urls) do
     {session, results} =
       Enum.reduce(urls, {session, []},
@@ -383,6 +383,7 @@ defmodule AcmeClient do
     "_acme-challenge." <> domain
   end
 
+  @spec dns_validate(map()) :: list(binary())
   def dns_validate(%{"status" => "pending"} = authorization) do
     %{"identifier" => identifier, "challenges" => challenges} = authorization
 
@@ -391,7 +392,7 @@ defmodule AcmeClient do
       [] ->
         authorization
       values ->
-        values = for [value | _rest] <- values, do: to_string(value)
+        for [value | _rest] <- values, do: to_string(value)
     end
   end
 
