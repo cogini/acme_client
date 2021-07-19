@@ -45,6 +45,7 @@ defmodule AcmeClient do
   * adapter: Tesla adapter (optional)
   * account_key: ACME account key (optional)
   * account_kid: ACME account key id, a URL (optional)
+  * tesla_debug: Tesla session debugging (optional, default false)
 
   ## Examples
 
@@ -65,11 +66,16 @@ defmodule AcmeClient do
       account_kid: opts[:account_kid],
     }
 
+    debug_opts =
+      case Keyword.fetch(opts, :tesla_debug) do
+        {:ok, value} -> [debug: value]
+        :error -> []
+      end
+
     middleware = opts_middleware ++ [
       {Tesla.Middleware.JSON, decode_content_types: ["application/problem+json"]},
-      {Tesla.Middleware.Logger, debug: false},
-      # {Tesla.Middleware.Logger, debug: false, engine: Jason, engine_opts: [keys: :atoms]}
-      # {Tesla.Middleware.Logger, engine: Jason, engine_opts: [keys: :atoms!]}
+      # engine: Jason, engine_opts: [keys: :atoms]
+      {Tesla.Middleware.Logger, debug_opts},
     ]
 
     client = Tesla.client(middleware, adapter)
