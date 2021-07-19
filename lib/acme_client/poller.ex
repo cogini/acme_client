@@ -65,8 +65,8 @@ defmodule AcmeClient.Poller do
   Poll order URL for status == valid
   """
 
-  # use GenServer, restart: :temporary
-  @behaviour :gen_statem
+  use GenServer, restart: :temporary
+  # @behaviour :gen_statem
 
   require Logger
   alias AcmeClient.Session
@@ -78,35 +78,42 @@ defmodule AcmeClient.Poller do
     # :gen_statem.start_link(__MODULE__, args, name: name, debug: :log)
     # :gen_statem.start_link(name, __MODULE__, args, [debug: :log])
     # :gen_statem.start_link(name, __MODULE__, args, [[debug: :trace]])
-    :gen_statem.start_link(name, __MODULE__, args, opts)
+    # :gen_statem.start_link(name, __MODULE__, args, opts)
+    opts = Keyword.put_new(opts, :name, name)
+    GenServer.start_link(__MODULE__, args, opts)
   end
 
-  def child_spec(opts) do
-    %{
-      id: __MODULE__,
-      start: {__MODULE__, :start_link, [opts]},
-      type: :worker,
-      restart: :temporary,
-      shutdown: 500
-    }
-  end
+  # def child_spec(opts) do
+  #   %{
+  #     id: __MODULE__,
+  #     start: {__MODULE__, :start_link, [opts]},
+  #     type: :worker,
+  #     restart: :temporary,
+  #     shutdown: 500
+  #   }
+  # end
 
-  @impl :gen_statem
+  # @impl :gen_statem
+  @impl GenServer
   def init(args) do
     url = args[:url]
     poll_interval = args[:poll_interval] || 10_000
 
-    data = %{
+    state = %{
       poll_interval: poll_interval,
       session: nil,
       cb_mod: args[:cb_mod],
       url: url,
       order: args[:order],
       challenge_responses: args[:challenge_responses],
+      status: :pending,
+      timer: nil,
     }
 
+    Logger.metadata(Keyword.put(Logger.metadata(), :order, url))
+
     # Spread out load from multiple polling processes
-    timeout = :rand.uniform(poll_interval)
+    # timeout = :rand.uniform(poll_interval)
 
     # with {:ok, session} <- AcmeClient.create_session(),
     #      {:ok, session, order} <- AcmeClient.get_object(session, url)
@@ -123,8 +130,21 @@ defmodule AcmeClient.Poller do
     #     {:ok, :pending, data, [timeout]}
     # end
 
-    {:ok, :pending, data, [timeout]}
+    # Spread out load from multiple polling processes
+    Process.send_after(self(), :timeout, :rand.uniform(poll_interval))
+
+    # {:ok, :pending, data, [timeout]}
+    # {:ok, state, {:continue, :spread}}
+    {:ok, state}
   end
+
+  # def handle_continue(:spread, state) do
+  #   # Spread out load from multiple polling processes
+  #   Process.send_after(self(), :timeout, :rand.uniform(poll_interval))
+  #   {:noreply, state}
+  #   # {:ok, timer} = :timer.send_interval(state.poll_interval, :timeout)
+  #   # {:noreply, %{state | timer: timer}}
+  # end
 
   # Convert order status to gen_statem state
   defp order_status_to_state(%{"status" => "pending"}), do: :pending
@@ -133,43 +153,40 @@ defmodule AcmeClient.Poller do
   defp order_status_to_state(%{"status" => "valid"}), do: :valid
   defp order_status_to_state(%{"status" => "invalid"}), do: :invalid
 
-  @impl :gen_statem
+  # @impl :gen_statem
   # def callback_mode, do: :handle_event_function
   # def callback_mode, do: :state_functions
-  def callback_mode, do: [:state_functions, :state_enter]
+  # def callback_mode, do: [:state_functions, :state_enter]
 
   # Order objects are created in the "pending" state. Once all of the
   # authorizations listed in the order object are in the "valid" state, the
   # order transitions to the "ready" state.
 
-  def create_session(data) do
+  def handle_info(:timeout, %{session: nil} = state) do
     case AcmeClient.create_session() do
       {:ok, session} ->
-        {:repeat_state, %{data | session: session}}
+        Logger.info("Creating ACME session")
+        # handle_info(:timeout, %{state | session: session})
+        {:noreply, %{state | session: session}, 0}
       {:error, reason} ->
-        Logger.error("Error creating session: #{inspect(reason)}")
-        Process.sleep(data.poll_interval)
-        {:repeat_state, data}
+        Logger.error("Error creating ACME session: #{inspect(reason)}")
+        {:noreply, state, state.poll_interval}
     end
   end
 
-  def pending(event_type, event_content, %{session: nil} = data) do
-    url = data.url
-    Logger.info("#{url}: pending, creating session (#{inspect(event_type)} #{inspect(event_content)})")
-    create_session(data)
-  end
-
-  def pending(event_type, event_content, %{challenge_responses: nil} = data) do
-    url = data.url
-    Logger.info("#{url}: pending, processing authorizations (#{inspect(event_type)} #{inspect(event_content)})")
-
-    session = data.session
+  def handle_info(:timeout, %{status: :pending, challenge_responses: nil} = state) do
+    %{url: url, session: session, status: status} = state
+    Logger.info("#{status}, processing authorizations)")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+
+        id = get_id(order["identifiers"])
+        Logger.metadata(Keyword.put(Logger.metadata(), :id, id))
+
         case order_status_to_state(order) do
-          :pending ->
+          ^status ->
             key = session.account_key
-            cb_mod = data.cb_mod
+            cb_mod = state.cb_mod
 
             case get_authorizations(session, order["authorizations"]) do
               {:ok, session, authorizations} ->
@@ -181,31 +198,30 @@ defmodule AcmeClient.Poller do
                   |> merge_challenge_responses()
                   |> publish_challenge_responses(cb_mod)
 
-                {:repeat_state, %{data | session: session, challenge_responses: responses}}
+                {:noreply, %{state | session: session, challenge_responses: responses}, 0}
               {:error, reason} ->
-                Logger.error("#{url}: get_authorizations error #{inspect(reason)}")
-                {:repeat_state, %{data | session: nil, order: order}}
+                Logger.error("get_authorizations error #{inspect(reason)}")
+                {:noreply, state, state.poll_interval}
             end
-          state ->
-            Logger.info("#{url}: transition to #{state}")
-            {:next_state, state, %{data | session: session, order: order}}
+
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status}, state.poll_interval}
         end
       err ->
-        Logger.error("#{url}: error #{inspect(err)}")
-        Process.sleep(data.poll_interval)
-        {:repeat_state, %{data | session: nil}}
+        Logger.error("Error getting object: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
 
-  def pending(event_type, event_content, %{challenge_responses: challenge_responses} = data) do
-    url = data.url
-    Logger.info("#{url}: pending, processing challenges (#{inspect(event_type)} #{inspect(event_content)})")
-
-    session = data.session
+  def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses} = state) do
+    %{url: url, session: session, status: status} = state
+    Logger.info("#{status}, processing challenges)")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
         case order_status_to_state(order) do
-          :pending ->
+          ^status ->
+
             # Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
             session =
               for {_domain, responses} <- challenge_responses, response <- responses, reduce: session do
@@ -237,31 +253,29 @@ defmodule AcmeClient.Poller do
                   end
               end
 
-            Process.sleep(data.poll_interval)
-            {:repeat_state, %{data | session: session, order: order}}
-          state ->
-            Logger.info("#{url}: transition to #{state}")
-            {:next_state, state, %{data | session: session, order: order}}
+            {:noreply, %{state | session: session}, state.poll_interval}
+
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status}, 0}
         end
       err ->
-        Logger.error("#{url}: error #{inspect(err)}")
-        Process.sleep(data.poll_interval)
-        {:repeat_state, %{data | session: nil}}
+        Logger.error("Error getting object: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
 
-  def ready(event_type, event_content, data) do
-    url = data.url
-    Logger.info("#{url}: ready, finalizing #{inspect(event_type)} #{inspect(event_content)}")
-
-    session = data.session
+  def handle_info(:timeout, %{status: :ready} = state) do
+    %{url: url, session: session, status: status} = state
+    Logger.info("#{status}, finalizing")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
         case order_status_to_state(order) do
-          :ready ->
+          ^status ->
+
             finalize_url = order["finalize"]
             domain = get_domain(order["identifiers"])
-            cb_mod = data.cb_mod
+            cb_mod = state.cb_mod
 
             with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(cb_mod, :get_csr, [domain])},
                  {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
@@ -269,82 +283,122 @@ defmodule AcmeClient.Poller do
                  {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})},
                  {:finalize, {:ok, session, result}} <- {:finalize, AcmeClient.post_as_get(session, finalize_url, json)}
             do
-                Logger.debug("#{url} csr: #{json}")
-                Logger.info("#{url} finalize #{finalize_url} result: #{inspect(result)}")
-                {:repeat_state, %{data | session: session, order: order}}
+                Logger.debug("csr: #{json}")
+                Logger.info("finalize #{finalize_url} result: #{inspect(result)}")
+                {:noreply, %{state | session: session}, 0}
             else
               err ->
-                Logger.error("#{url}: error #{inspect(err)}")
-                Process.sleep(data.poll_interval)
-                {:repeat_state, %{data | session: session, order: order}}
+                Logger.error("error #{inspect(err)}")
+                {:noreply, %{state | session: nil}, state.poll_interval}
             end
 
-          state ->
-            Logger.info("#{url}: transition to #{state}")
-            {:next_state, state, %{data | session: session, order: order}}
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status}, 0}
         end
       err ->
-        Logger.error("#{url}: error #{inspect(err)}")
-        {:ok, session} = AcmeClient.create_session()
-        Process.sleep(data.poll_interval)
-        {:repeat_state, %{data | session: session}}
+        Logger.error("Error getting object: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
 
-  def processing(event_type, event_content, data) do
-    url = data.url
-    Logger.info("#{url}: processing, polling until valid #{inspect(event_type)} #{inspect(event_content)}")
-
-    session = data.session
+  def handle_info(:timeout, %{status: :ready} = state) do
+    %{url: url, session: session, status: status} = state
+    Logger.info("#{status}, finalizing")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
         case order_status_to_state(order) do
-          :processing ->
-            {:repeat_state, %{data | session: session, order: order}}
-          state ->
-            Logger.info("#{url}: transition to #{state}")
-            {:next_state, state, %{data | session: session, order: order}}
+          ^status ->
+
+            finalize_url = order["finalize"]
+            domain = get_domain(order["identifiers"])
+            cb_mod = state.cb_mod
+
+            with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(cb_mod, :get_csr, [domain])},
+                 {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
+                 {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
+                 {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})},
+                 {:finalize, {:ok, session, result}} <- {:finalize, AcmeClient.post_as_get(session, finalize_url, json)}
+            do
+                Logger.debug("csr: #{json}")
+                Logger.info("finalize #{finalize_url} result: #{inspect(result)}")
+                {:noreply, %{state | session: session}, 0}
+            else
+              err ->
+                Logger.error("error #{inspect(err)}")
+                {:noreply, %{state | session: nil}, state.poll_interval}
+            end
+
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status}, 0}
         end
       err ->
-        Logger.error("#{url}: error #{inspect(err)}")
-        Process.sleep(data.poll_interval)
-        {:ok, session} = AcmeClient.create_session()
-        {:repeat_state, %{data | session: session}}
+        Logger.error("Error getting object: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
 
-  def valid(_event_type, _event_content, data) do
-    url = data.url
-    Logger.info("#{url}: valid, downloading cert")
-
-    # Order will still be valid from caller as this is final state
-    order = data.order
-
-    session = data.session
-    case AcmeClient.get_object(session, order["certificate"]) do
-      {:ok, _session, certificate} ->
-        # Logger.debug("certificate: #{certificate}")
-        cb_mod = data.cb_mod
-        case apply(cb_mod, :process_certificate, [order, certificate]) do
-          :ok ->
-            {:stop, :normal, data}
+  def handle_info(:timeout, %{status: :processing} = state) do
+    %{url: url, session: session, status: status} = state
+    Logger.info("#{status}, polling until valid")
+    case AcmeClient.get_object(session, url) do
+      {:ok, session, order} ->
+        case order_status_to_state(order) do
+          ^status ->
+            {:noreply, %{state | session: session}, state.poll_interval}
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status}, 0}
         end
       err ->
-        Logger.error("#{url}: error #{inspect(err)}")
-        {:ok, session} = AcmeClient.create_session()
-        {:repeat_state, %{data | session: session}, [data.poll_interval]}
+        Logger.error("Error getting object: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
 
-  def invalid(_event_type, _event_content, data) do
-    url = data.url
-    Logger.warning("#{url}: invalid order")
+  def handle_info(:timeout, %{status: :valid} = state) do
+    %{url: url, session: session, status: status} = state
+    Logger.info("#{status}, downloading certificate")
+    case AcmeClient.get_object(session, url) do
+      {:ok, session, order} ->
+        case order_status_to_state(order) do
+          ^status ->
 
-    # Order will still be valid from caller as this is final state
+            case AcmeClient.get_object(session, order["certificate"]) do
+              {:ok, session, certificate} ->
+                Logger.debug("certificate: #{certificate}")
+                cb_mod = state.cb_mod
+                case apply(cb_mod, :process_certificate, [order, certificate]) do
+                  :ok ->
+                    Logger.info("Stopping")
+                    {:stop, :normal, state}
+                  _ ->
+                    {:noreply, %{state | session: session}, state.poll_interval}
+                end
+              err ->
+                Logger.error("Error reading certificate #{inspect(err)}")
+                {:noreply, %{state | session: nil}, state.poll_interval}
+            end
 
-    # TODO: handle differently?
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status}, 0}
+        end
+      err ->
+        Logger.error("Error getting object: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
+    end
+  end
 
-    {:stop, :normal, data}
+  def handle_info(:timeout, %{status: :invalid} = state) do
+    %{status: status} = state
+    Logger.warning("#{status}, invalid order")
+
+    Logger.info("Stopping")
+    # TODO: callback
+
+    {:stop, :normal, state}
   end
 
   # Authorization objects are created in the "pending" state. If one of the
@@ -596,4 +650,7 @@ defmodule AcmeClient.Poller do
       end
     domain
   end
+
+  def get_id(identifiers), do: get_domain(identifiers)
+
 end
