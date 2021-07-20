@@ -7,17 +7,17 @@ defmodule AcmeClient.Session do
     account_key: nil,
     account_kid: nil,
     client: nil,
-    nonce: "",
-    directory: %{}, # url map
+    nonce: nil,
+    directory: nil, # url map
     cb_mod: nil,
   ]
 
   @type t :: %__MODULE__{
-    account_key: JOSE.JWK.t(),
-    account_kid: binary(),
-    client: Tesla.Client.t(),
-    nonce: binary(),
-    directory: map(),
-    cb_mod: module(),
+    account_key: JOSE.JWK.t() | nil,
+    account_kid: binary() | nil,
+    client: Tesla.Client.t() | nil,
+    nonce: binary() | nil,
+    directory: map() | nil,
+    cb_mod: module() | nil,
   }
 end
