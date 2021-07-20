@@ -68,8 +68,10 @@ defmodule AcmeClient do
 
     debug_opts =
       case Keyword.fetch(opts, :tesla_debug) do
-        {:ok, value} -> [debug: value]
-        :error -> []
+        {:ok, value} ->
+          [debug: value]
+        :error ->
+          []
       end
 
     middleware = opts_middleware ++ [
