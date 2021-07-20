@@ -36,7 +36,7 @@ defmodule AcmeClient do
   Sets up the Tesla client library, then reads the server's directory URL,
   which maps standard names for operations to the specific URLs on the server.
 
-  Params:
+  Options:
 
   * directory_url: Server directory URL.
                    Defaults to staging server `https://acme-staging-v02.api.letsencrypt.org/directory`.
@@ -58,14 +58,6 @@ defmodule AcmeClient do
   """
   @spec new_session(Keyword.t()) :: {:ok, Session.t()} | {:error, term()}
   def new_session(opts \\ []) do
-    directory_url = opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
-    opts_middleware = opts[:middleware] || []
-    adapter = opts[:adapter]
-    session = %Session{
-      account_key: opts[:account_key],
-      account_kid: opts[:account_kid],
-    }
-
     debug_opts =
       case Keyword.fetch(opts, :tesla_debug) do
         {:ok, value} ->
@@ -74,20 +66,35 @@ defmodule AcmeClient do
           []
       end
 
-    middleware = opts_middleware ++ [
+    middleware_opts = opts[:middleware] || []
+    middleware = middleware_opts ++ [
       {Tesla.Middleware.JSON, decode_content_types: ["application/problem+json"]},
       # engine: Jason, engine_opts: [keys: :atoms]
       {Tesla.Middleware.Logger, debug_opts},
     ]
 
+    adapter = opts[:adapter]
+
     client = Tesla.client(middleware, adapter)
-    case Tesla.request(client, method: :get, url: directory_url) do
-      {:ok, %{status: 200, body: body}} ->
-        {:ok, %{session | client: client, directory: body}}
-      {:ok, result} ->
-        {:error, result}
-      {:error, reason} ->
-        {:error, reason}
+
+    session = %Session{
+      account_key: opts[:account_key],
+      account_kid: opts[:account_kid],
+      directory: opts[:directory],
+    }
+
+    if session.directory do
+      {:ok, %{session | client: client}}
+    else
+      directory_url = opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
+      case Tesla.request(client, method: :get, url: directory_url) do
+        {:ok, %{status: 200, body: body}} ->
+          {:ok, %{session | directory: body, client: client}}
+        {:ok, result} ->
+          {:error, result}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -108,23 +115,21 @@ defmodule AcmeClient do
   @doc ~S"""
   Convenience function which creates a session configured from environment.
 
-  Params:
+  Options:
     * directory_url (optional)
     * account_key: Account key (optional)
     * account_kid: Account key id URL (optional)
 
-  If params are not specified, they are read from the environment.
+  If options are not specified, they are read from the environment.
 
   ## Examples
 
     {:ok, session} = AcmeClient.create_session()
   """
   @spec create_session(Keyword.t()) :: {:ok, Session.t()} | {:error, term()}
-  def create_session(params \\ []) do
-    url = params[:directory_url] || Application.get_env(@app, :directory_url)
-    kid = params[:account_kid] || Application.get_env(@app, :account_kid)
+  def create_session(opts \\ []) do
     key =
-      case Keyword.fetch(params, :account_key) do
+      case Keyword.fetch(opts, :account_key) do
         {:ok, value} ->
           value
         :error ->
@@ -132,7 +137,14 @@ defmodule AcmeClient do
           AcmeClient.binary_to_key(account_key_bin)
       end
 
-    with {:ok, session} <- new_session(directory_url: url, account_key: key, account_kid: kid),
+    session_opts = [
+      directory_url: opts[:directory_url] || Application.get_env(@app, :directory_url),
+      directory: opts[:directory] || Application.get_env(@app, :directory),
+      account_kid: opts[:account_kid] || Application.get_env(@app, :account_kid),
+      account_key: key,
+    ]
+
+    with {:ok, session} <- new_session(session_opts),
          {:ok, session} <- new_nonce(session)
     do
       {:ok, session}
@@ -259,7 +271,7 @@ defmodule AcmeClient do
   @doc ~S"""
   Create new ACME account.
 
-  Params:
+  Options:
     * account_key: Account key, from `generate_account_key/1`
     * contact: Account owner contact(s), e.g. "mailto:jake@cogini.com", string
                or array of strings.
@@ -270,14 +282,14 @@ defmodule AcmeClient do
   ## Examples
 
     {:ok, account_key} = AcmeClient.generate_account_key()
-    params = [
+    opts = [
       account_key: account_key,
       contact: "mailto:admin@example.com",
       terms_of_service_agreed: true,
     ]
     {:ok, session} = new_session()
     {:ok, session} = new_nonce(session)
-    {:ok, session, account} = AcmeClient.create_account(params)
+    {:ok, session, account} = AcmeClient.create_account(opts)
   """
   @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()} | {:error, term()}
   def new_account(session, opts) do
@@ -417,7 +429,7 @@ defmodule AcmeClient do
   @doc ~S"""
   Create new order.
 
-  Params:
+  Options:
 
   * identifiers: domain(s), either binary value or type/value map
   * not_before: datetime in RFC3339 (ISO8601) format (optional), not supported by Let's Encrypt
@@ -547,6 +559,18 @@ defmodule AcmeClient do
   #   "detail": "JWS has an invalid anti-replay nonce: \"0002t4XOF7rhtseQk6TdCqyU-Sk1U6l-gK9M2_aHT3We1bo\"",
   #   "status": 400
   # }
+
+  # status: 429
+  # %{
+  #   "detail" => "Rate limit for '/directory' reached",
+  #   "type" => "urn:ietf:params:acme:error:rateLimited"
+  # },
+
+  # status: 429
+  # %{
+  #   "detail" => "Rate limit for '/acme' reached",
+  #   "type" => "urn:ietf:params:acme:error:rateLimited"
+  # },
 
   @doc ~S"""
   Create Tesla client.
