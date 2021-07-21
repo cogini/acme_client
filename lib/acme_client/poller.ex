@@ -169,6 +169,8 @@ defmodule AcmeClient.Poller do
   # @impl :gen_statem
   @impl GenServer
   def init(args) do
+    Logger.debug("args: #{inspect(args)}")
+
     url = args[:url]
     poll_interval = args[:poll_interval] || 60_000
 
@@ -239,8 +241,7 @@ defmodule AcmeClient.Poller do
   def handle_info(:timeout, %{session: nil} = state) do
     case AcmeClient.create_session() do
       {:ok, session} ->
-        Logger.info("Creating ACME session")
-        # handle_info(:timeout, %{state | session: session})
+        Logger.info("Created ACME session")
         {:noreply, %{state | session: session}, 0}
       {:error, reason} ->
         Logger.error("Error creating ACME session: #{inspect(reason)}")
@@ -272,15 +273,15 @@ defmodule AcmeClient.Poller do
                   |> merge_challenge_responses()
                   |> publish_challenge_responses(cb_mod)
 
-                {:noreply, %{state | session: session, challenge_responses: responses}, 0}
+                {:noreply, %{state | challenge_responses: responses, session: session}, 0}
               {:error, reason} ->
                 Logger.error("Error getting authorizations: #{inspect(reason)}")
-                {:noreply, state, state.poll_interval}
+                {:noreply, %{state | session: nil}, state.poll_interval}
             end
 
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status}, 0}
+            {:noreply, %{state | status: new_status, session: session}, 0}
         end
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
@@ -311,8 +312,8 @@ defmodule AcmeClient.Poller do
                     Logger.info("#{url}: DNS found #{host} #{response_code}")
 
                     case AcmeClient.poke_url(session, ready_url) do
-                      {:ok, session, poke_result} ->
-                        Logger.info("#{url}: Poked #{ready_url}: #{inspect(poke_result)}")
+                      {:ok, session, _poke_result} ->
+                        Logger.info("#{url}: Poked #{ready_url}")
                         session
                       {:error, session, reason} ->
                         Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
@@ -331,7 +332,7 @@ defmodule AcmeClient.Poller do
 
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status}, 0}
+            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
@@ -368,7 +369,7 @@ defmodule AcmeClient.Poller do
 
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status}, 0}
+            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
@@ -386,7 +387,7 @@ defmodule AcmeClient.Poller do
             {:noreply, %{state | session: session}, state.poll_interval}
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status}, 0}
+            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
@@ -423,7 +424,7 @@ defmodule AcmeClient.Poller do
 
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status}, 0}
+            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
@@ -432,16 +433,31 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :invalid} = state) do
-    %{status: status, order: order} = state
+    %{url: url, session: session, status: status} = state
     Logger.warning("#{status}, invalid order")
 
-    cb_mod = state.cb_mod
-    apply(cb_mod, :ack_order, [order])
-    # TODO: callback
+    case AcmeClient.get_object(session, url) do
+      {:ok, session, order} ->
+        case order_status_to_state(order) do
+          ^status ->
 
-    Logger.info("Stopping")
+            Logger.debug("order: #{inspect(order)}")
 
-    {:stop, :normal, state}
+            cb_mod = state.cb_mod
+            apply(cb_mod, :invalid_order, [order])
+
+            Logger.info("Stopping")
+
+            {:stop, :normal, state}
+
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
+        end
+      err ->
+        Logger.error("Error getting order: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
+    end
   end
 
   @doc "Get details of order authorizations"
@@ -454,6 +470,7 @@ defmodule AcmeClient.Poller do
           _url, {nil, results} ->
             {nil, results}
           url, {session, results} ->
+            Logger.debug("Getting authorization #{url}")
             case AcmeClient.post_as_get(session, url) do
               {:ok, session, result} ->
                 {session, [{url, result.body} | results]}
