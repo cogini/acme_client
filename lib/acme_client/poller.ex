@@ -588,7 +588,7 @@ defmodule AcmeClient.Poller do
         end)
 
     case {session, results} do
-      {nil, [error | _rest]} ->
+      {nil, [{_url, error} | _rest]} ->
           error
 
       {session, results} ->
