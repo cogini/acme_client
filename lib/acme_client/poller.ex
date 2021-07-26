@@ -285,6 +285,11 @@ defmodule AcmeClient.Poller do
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, session: session}, 0}
         end
+
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.error("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
