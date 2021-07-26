@@ -10,6 +10,10 @@ defmodule AcmeClient.Session do
     nonce: nil,
     directory: nil, # url map
     cb_mod: nil,
+    # See ExRated
+    rate_limit_id: nil,
+    rate_limit_scale: nil,
+    rate_limit_limit: nil,
   ]
 
   @type t :: %__MODULE__{
@@ -19,5 +23,9 @@ defmodule AcmeClient.Session do
     nonce: binary() | nil,
     directory: map() | nil,
     cb_mod: module() | nil,
+    # See ExRated
+    rate_limit_id: binary() | nil,
+    rate_limit_scale: pos_integer() | nil,
+    rate_limit_limit: pos_integer() | nil,
   }
 end
