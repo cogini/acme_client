@@ -364,18 +364,27 @@ defmodule AcmeClient.Poller do
             with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(cb_mod, :get_csr, [domain])},
                  {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
                  {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
-                 {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})},
-                 {:finalize, {:ok, session, result}} <- {:finalize, AcmeClient.post_as_get(session, finalize_url, json)}
+                 {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
             do
-                Logger.debug("csr: #{json}")
-                Logger.info("finalize #{finalize_url} result: #{inspect(result)}")
-                {:noreply, %{state | session: session}, 0}
+                case AcmeClient.post_as_get(session, finalize_url, json) do
+                  {:ok, session, result} ->
+                    Logger.debug("csr: #{json}")
+                    Logger.info("finalize #{finalize_url} result: #{inspect(result)}")
+                    {:noreply, %{state | session: session}, 0}
+
+                  {:error, session, reason} ->
+                    Logger.error("Error finalizing: #{inspect(reason)}")
+                    {:noreply, %{state | session: session}, state.poll_interval}
+
+                  {:error, reason}
+                    Logger.error("Error finalizing: #{inspect(reason)}")
+                    {:noreply, %{state | session: nil}, state.poll_interval}
+                end
             else
               err ->
-                cb_mod = state.cb_mod
-                apply(cb_mod, :handle_finalization_error, [order, error]) do
-
                 Logger.error("Error finalizing: #{inspect(err)}")
+                apply(state.cb_mod, :handle_finalization_error, [order, err])
+
                 {:noreply, %{state | session: nil}, state.poll_interval}
             end
 
@@ -383,6 +392,7 @@ defmodule AcmeClient.Poller do
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
