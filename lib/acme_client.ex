@@ -132,6 +132,7 @@ defmodule AcmeClient do
       case Keyword.fetch(opts, :account_key) do
         {:ok, value} ->
           value
+
         :error ->
           account_key_bin = Application.get_env(@app, :account_key)
           AcmeClient.binary_to_key(account_key_bin)
