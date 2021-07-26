@@ -193,7 +193,7 @@ defmodule AcmeClient do
         end
 
       {:error, _limit} ->
-        {:error, :throttled}
+        {:error, session, :throttled}
     end
   end
 
