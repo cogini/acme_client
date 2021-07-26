@@ -244,6 +244,11 @@ defmodule AcmeClient.Poller do
       {:ok, session} ->
         Logger.info("Created ACME session")
         {:noreply, %{state | session: session}, 0}
+
+      {:error, %Tesla.Env{status: 429}} ->
+        Logger.error("HTTP rate limited nonce")
+        {:noreply, state, 2 * state.poll_interval}
+
       {:error, reason} ->
         Logger.error("Error creating ACME session: #{inspect(reason)}")
         {:noreply, state, state.poll_interval}
