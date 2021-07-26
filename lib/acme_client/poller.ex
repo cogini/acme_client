@@ -345,6 +345,10 @@ defmodule AcmeClient.Poller do
                         Logger.info("#{url}: Poked #{ready_url}")
                         session
 
+                      {:error, session, :throttled = reason} ->
+                        Logger.warning("#{url}: #{domain} Error poking #{ready_url}: #{reason}")
+                        session
+
                       {:error, session, reason} ->
                         Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
                         session
