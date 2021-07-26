@@ -86,6 +86,9 @@ defmodule AcmeClient do
       account_key: opts[:account_key],
       account_kid: opts[:account_kid],
       directory: opts[:directory],
+      rate_limit_id: opts[:rate_limit_id],
+      rate_limit_scale: opts[:rate_limit_scale],
+      rate_limit_limit: opts[:rate_limit_limit],
     }
 
     if session.directory do
@@ -112,8 +115,10 @@ defmodule AcmeClient do
     case Tesla.request(session.client, method: :head, url: url) do
       {:ok, %{status: 200, headers: headers}} ->
         {:ok, set_nonce(session, headers)}
+
       {:ok, result} ->
         {:error, result}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -311,7 +316,9 @@ defmodule AcmeClient do
     {:ok, session} = new_nonce(session)
     {:ok, session, account} = AcmeClient.create_account(opts)
   """
-  @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()} | {:error, Session.t(), Tesla.Env.result()} | {:error, term()}
+  @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()}
+                                                | {:error, Session.t(), Tesla.Env.result()}
+                                                | {:error, term()}
   def new_account(session, opts) do
     %{client: client, account_key: account_key, nonce: nonce} = session
     url = session.directory["newAccount"]
@@ -326,9 +333,16 @@ defmodule AcmeClient do
         {:external_account_binding, value} -> {"externalAccountBinding", value}
     end
 
+    opts_keys = [
+      :contact,
+      :terms_of_service_agreed,
+      :only_return_existing,
+      :external_account_binding,
+    ]
+
     payload =
       opts
-      |> Keyword.take([:contact, :terms_of_service_agreed, :only_return_existing, :external_account_binding])
+      |> Keyword.take(opts_keys)
       |> Enum.map(map_opts)
       |> Enum.into(%{})
       |> Jason.encode!()
