@@ -16,6 +16,9 @@ defmodule AcmeClient do
 
   @type headers :: list({binary(), binary()})
 
+  @rate_limit_scale 1000
+  @rate_limit_limit 5
+
   @doc """
   Hello world.
 
@@ -28,7 +31,6 @@ defmodule AcmeClient do
   def hello do
     :world
   end
-
 
   @doc ~S"""
   Create new session connecting to ACME server."
@@ -166,23 +168,32 @@ defmodule AcmeClient do
   """
   @spec post_as_get(Session.t(), binary()) :: request_ret()
   def post_as_get(session, url, payload \\ "") do
-    %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
-    req_headers = [{"content-type", "application/jose+json"}]
+    case ExRated.check_rate("post_as_get", @rate_limit_scale, @rate_limit_limit) do
+      {:ok, _count} ->
+        %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
+        req_headers = [{"content-type", "application/jose+json"}]
 
-    protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
-    {_, body} = JOSE.JWS.sign(account_key, payload, protected)
+        protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
+        {_, body} = JOSE.JWS.sign(account_key, payload, protected)
 
-    case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
-      {:ok, %{status: 200, headers: headers} = result} ->
-        session = set_nonce(session, headers)
-        {:ok, session, result}
-      {:ok, %{status: 400, body: %{"type" => "urn:ietf:params:acme:error:badNonce"}} = result} ->
-        session = set_nonce(session, result.headers)
-        post_as_get(session, url, payload)
-      {:ok, %{headers: headers} = result} ->
-        {:error, set_nonce(session, headers), result}
-      {:error, reason} ->
-        {:error, reason}
+        case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
+          {:ok, %{status: 200, headers: headers} = result} ->
+            session = set_nonce(session, headers)
+            {:ok, session, result}
+
+          {:ok, %{status: 400, body: %{"type" => "urn:ietf:params:acme:error:badNonce"}} = result} ->
+            session = set_nonce(session, result.headers)
+            post_as_get(session, url, payload)
+
+          {:ok, %{headers: headers} = result} ->
+            {:error, set_nonce(session, headers), result}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, _limit} ->
+        {:error, :throttled}
     end
   end
 
