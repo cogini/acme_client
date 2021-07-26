@@ -301,6 +301,10 @@ defmodule AcmeClient.Poller do
             {:noreply, %{state | status: new_status, session: session}, 0}
         end
 
+      {:error, session, :throttled} ->
+        Logger.warning("HTTP rate limited throttled")
+        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
         Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
