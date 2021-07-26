@@ -248,7 +248,7 @@ defmodule AcmeClient.Poller do
         {:noreply, %{state | session: session}, 0}
 
       {:error, %Tesla.Env{status: 429}} ->
-        Logger.error("HTTP rate limited nonce")
+        Logger.warning("HTTP rate limited nonce")
         {:noreply, state, @rate_limit_times * state.poll_interval}
 
       {:error, reason} ->
@@ -283,12 +283,12 @@ defmodule AcmeClient.Poller do
 
                 {:noreply, %{state | challenge_responses: responses, session: session}, 0}
 
-              {:error, session, :throttled} ->
-                Logger.error("HTTP rate limited throttled")
+              {:error, :throttled} ->
+                Logger.warning("HTTP rate limited throttled")
                 {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
               {:error, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-                Logger.error("HTTP rate limited /acme")
+                Logger.warning("HTTP rate limited /acme")
                 {:noreply, %{state | session: nil}, @rate_limit_times * state.poll_interval}
 
               {:error, reason} ->
@@ -302,7 +302,7 @@ defmodule AcmeClient.Poller do
         end
 
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.error("HTTP rate limited /acme")
+        Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       err ->
@@ -363,11 +363,11 @@ defmodule AcmeClient.Poller do
         end
 
       {:error, session, :throttled} ->
-        Logger.error("HTTP rate limited throttled")
+        Logger.warning("HTTP rate limited throttled")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.error("HTTP rate limited /acme")
+        Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       err ->
@@ -400,11 +400,11 @@ defmodule AcmeClient.Poller do
                     {:noreply, %{state | session: session}, 0}
 
                   {:error, session, :throttled} ->
-                    Logger.error("HTTP rate limited throttled")
+                    Logger.warning("HTTP rate limited throttled")
                     {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
                   {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-                    Logger.error("HTTP rate limited /acme")
+                    Logger.warning("HTTP rate limited /acme")
                     {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
                   {:error, session, reason} ->
@@ -429,11 +429,11 @@ defmodule AcmeClient.Poller do
         end
 
       {:error, session, :throttled} ->
-        Logger.error("HTTP rate limited throttled")
+        Logger.warning("HTTP rate limited throttled")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.error("HTTP rate limited /acme")
+        Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       err ->
@@ -457,11 +457,11 @@ defmodule AcmeClient.Poller do
         end
 
       {:error, session, :throttled} ->
-        Logger.error("HTTP rate limited throttled")
+        Logger.warning("HTTP rate limited throttled")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.error("HTTP rate limited /acme")
+        Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       err ->
@@ -495,11 +495,11 @@ defmodule AcmeClient.Poller do
                 end
 
               {:error, session, :throttled} ->
-                Logger.error("HTTP rate limited throttled")
+                Logger.warning("HTTP rate limited throttled")
                 {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
               {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-                Logger.error("HTTP rate limited /acme")
+                Logger.warning("HTTP rate limited /acme")
                 {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
               err ->
@@ -513,11 +513,11 @@ defmodule AcmeClient.Poller do
         end
 
       {:error, session, :throttled} ->
-        Logger.error("HTTP rate limited throttled")
+        Logger.warning("HTTP rate limited throttled")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.error("HTTP rate limited /acme")
+        Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       err ->
@@ -550,11 +550,11 @@ defmodule AcmeClient.Poller do
         end
 
       {:error, session, :throttled} ->
-        Logger.error("HTTP rate limited throttled")
+        Logger.warning("HTTP rate limited throttled")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.error("HTTP rate limited /acme")
+        Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       err ->
@@ -710,9 +710,11 @@ defmodule AcmeClient.Poller do
         {:ok, session, poke_result} ->
           Logger.info("#{domain}: poked #{url}: #{inspect(poke_result)}")
           session
+
         {:error, session, reason} ->
           Logger.error("#{domain}: Error poking #{url}: #{inspect(reason)}")
           session
+
         {:error, reason} ->
           Logger.error("#{domain}: Error poking #{url}: #{inspect(reason)}")
           nil
@@ -733,6 +735,7 @@ defmodule AcmeClient.Poller do
 
   @spec publish_challenge_responses(map(), module() | nil) :: map()
   def publish_challenge_responses(responses, nil), do: responses
+
   def publish_challenge_responses(responses, cb_mod) do
     apply(cb_mod, :publish_challenge_responses, [responses])
     responses
