@@ -183,6 +183,7 @@ defmodule AcmeClient.Poller do
       challenge_responses: args[:challenge_responses],
       status: :pending,
       timer: nil,
+      dns_ips: args[:dns_ips] || []
     }
 
     Logger.metadata(Keyword.put(Logger.metadata(), :order, url))
@@ -274,6 +275,7 @@ defmodule AcmeClient.Poller do
                   |> publish_challenge_responses(cb_mod)
 
                 {:noreply, %{state | challenge_responses: responses, session: session}, 0}
+
               {:error, reason} ->
                 Logger.error("Error getting authorizations: #{inspect(reason)}")
                 {:noreply, %{state | session: nil}, state.poll_interval}
@@ -300,9 +302,12 @@ defmodule AcmeClient.Poller do
             # Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
             session =
               for {_domain, responses} <- challenge_responses, response <- responses, reduce: session do
-                nil -> nil
+                nil ->
+                  nil
+
                 session ->
                   %{"domain" => domain, "url" => ready_url, "response" => response_code} = response
+
                   host = AcmeClient.dns_challenge_name(domain)
 
                   txt_records = AcmeClient.dns_txt_records(host)
@@ -315,9 +320,11 @@ defmodule AcmeClient.Poller do
                       {:ok, session, _poke_result} ->
                         Logger.info("#{url}: Poked #{ready_url}")
                         session
+
                       {:error, session, reason} ->
                         Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
                         session
+
                       {:error, reason} ->
                         Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
                         nil
@@ -328,12 +335,14 @@ defmodule AcmeClient.Poller do
                   end
               end
 
-            {:noreply, %{state | session: session}, state.poll_interval}
+            {:noreply, %{state | session: session}, state.poll_interval * 2}
 
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
+      # {:error, session, %{status: 429, body: %{"type" => "urn:ietf:params:acme:error:rateLimited"}} = result} ->
+        # "detail" => "Rate limit for '/acme' reached"
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
@@ -363,6 +372,9 @@ defmodule AcmeClient.Poller do
                 {:noreply, %{state | session: session}, 0}
             else
               err ->
+                cb_mod = state.cb_mod
+                apply(cb_mod, :handle_finalization_error, [order, error]) do
+
                 Logger.error("Error finalizing: #{inspect(err)}")
                 {:noreply, %{state | session: nil}, state.poll_interval}
             end
@@ -411,7 +423,7 @@ defmodule AcmeClient.Poller do
                   :ok ->
                     apply(cb_mod, :ack_order, [order])
 
-                    Logger.info("Stopping")
+                    Logger.warning("Stopping valid #{url}")
                     {:stop, :normal, state}
                   err ->
                     Logger.error("Error running process_certificate: #{inspect(err)}")
@@ -446,7 +458,7 @@ defmodule AcmeClient.Poller do
             cb_mod = state.cb_mod
             apply(cb_mod, :invalid_order, [order])
 
-            Logger.info("Stopping")
+            Logger.warning("Stopping invalid #{url}")
 
             {:stop, :normal, state}
 
@@ -464,24 +476,27 @@ defmodule AcmeClient.Poller do
   @spec get_authorizations(Session.t(), [binary()]) :: {:ok, Session.t(), list({binary(), map()})}
                                                      | {:error, term()}
   def get_authorizations(session, urls) do
-    result =
+    {session, results} =
       Enum.reduce(urls, {session, []},
         fn
           _url, {nil, results} ->
             {nil, results}
+
           url, {session, results} ->
             Logger.debug("Getting authorization #{url}")
             case AcmeClient.post_as_get(session, url) do
               {:ok, session, result} ->
                 {session, [{url, result.body} | results]}
+
               {:error, session, reason} ->
                 {session, [{url, {:error, reason}} | results]}
-                {:error, reason}
+
+              {:error, reason}
                 {nil, [{url, {:error, reason}} | results]}
             end
         end)
 
-    case result do
+    case {session, results} do
       {nil, [error | _rest]} ->
           error
 
