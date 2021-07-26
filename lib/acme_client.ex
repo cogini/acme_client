@@ -150,9 +150,9 @@ defmodule AcmeClient do
       directory: opts[:directory] || Application.get_env(@app, :directory),
       account_kid: opts[:account_kid] || Application.get_env(@app, :account_kid),
       account_key: key,
-      rate_limit_id: opts[:rate_limit_id] || Application.get_env(@app, :rate_limit_id, @rate_limit_id),
-      rate_limit_scale: opts[:rate_limit_scale] || Application.get_env(@app, :rate_limit_scale, @rate_limit_scale),
-      rate_limit_limit: opts[:rate_limit_limit] || Application.get_env(@app, :rate_limit_limit, @rate_limit_limit),
+      rate_limit_id: opts[:rate_limit_id] || Application.get_env(@app, :rate_limit_id) || @rate_limit_id,
+      rate_limit_scale: opts[:rate_limit_scale] || Application.get_env(@app, :rate_limit_scale) || @rate_limit_scale,
+      rate_limit_limit: opts[:rate_limit_limit] || Application.get_env(@app, :rate_limit_limit) || @rate_limit_limit,
     ]
 
     with {:ok, session} <- new_session(session_opts),
