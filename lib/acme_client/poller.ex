@@ -351,8 +351,11 @@ defmodule AcmeClient.Poller do
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
-      # {:error, session, %{status: 429, body: %{"type" => "urn:ietf:params:acme:error:rateLimited"}} = result} ->
-        # "detail" => "Rate limit for '/acme' reached"
+
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.error("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
@@ -382,6 +385,10 @@ defmodule AcmeClient.Poller do
                     Logger.info("finalize #{finalize_url} result: #{inspect(result)}")
                     {:noreply, %{state | session: session}, 0}
 
+                  {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+                    Logger.error("HTTP rate limited /acme")
+                    {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
                   {:error, session, reason} ->
                     Logger.error("Error finalizing: #{inspect(reason)}")
                     {:noreply, %{state | session: session}, state.poll_interval}
@@ -403,6 +410,10 @@ defmodule AcmeClient.Poller do
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
 
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.error("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
@@ -417,10 +428,16 @@ defmodule AcmeClient.Poller do
         case order_status_to_state(order) do
           ^status ->
             {:noreply, %{state | session: session}, state.poll_interval}
+
           new_status ->
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
+
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.error("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
@@ -445,10 +462,16 @@ defmodule AcmeClient.Poller do
 
                     Logger.warning("Stopping valid #{url}")
                     {:stop, :normal, state}
+
                   err ->
                     Logger.error("Error running process_certificate: #{inspect(err)}")
                     {:noreply, %{state | session: session}, state.poll_interval}
                 end
+
+              {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+                Logger.error("HTTP rate limited /acme")
+                {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
               err ->
                 Logger.error("Error reading certificate: #{inspect(err)}")
                 {:noreply, %{state | session: nil}, state.poll_interval}
@@ -458,6 +481,11 @@ defmodule AcmeClient.Poller do
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
+
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.error("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
@@ -486,6 +514,11 @@ defmodule AcmeClient.Poller do
             Logger.info("Transition to #{inspect(new_status)}")
             {:noreply, %{state | status: new_status, order: order, session: session}, 0}
         end
+
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.error("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, 2 * state.poll_interval}
+
       err ->
         Logger.error("Error getting order: #{inspect(err)}")
         {:noreply, %{state | session: nil}, state.poll_interval}
@@ -547,10 +580,12 @@ defmodule AcmeClient.Poller do
               {:ok, session, poke_result} ->
                 Logger.info("#{domain}: poked #{url}: #{inspect(poke_result)}")
                 {session, [challenge | challenges]}
+
               {:error, session, reason} ->
                 Logger.error("#{domain}: Error poking #{url}: #{inspect(reason)}")
                 {session, [challenge | challenges]}
             end
+
           else
             Logger.info("#{domain}: DNS challenge response not found for #{host}")
             {session, [challenge | challenges]}
