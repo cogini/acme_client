@@ -29,15 +29,14 @@ defmodule AcmeClient.Poller do
     +-------------------+--------------------------------+--------------+
 
   Order objects are created in the "pending" state.  Once all of the
-  authorizations listed in the order object are in the "valid" state,
-  the order transitions to the "ready" state.  The order moves to the
-  "processing" state after the client submits a request to the order's
-  "finalize" URL and the CA begins the issuance process for the
-  certificate.  Once the certificate is issued, the order enters the
-  "valid" state.  If an error occurs at any of these stages, the order
-  moves to the "invalid" state.  The order also moves to the "invalid"
-  state if it expires or one of its authorizations enters a final state
-  other than "valid" ("expired", "revoked", or "deactivated").
+  authorizations listed in the order object are in the "valid" state, the order
+  transitions to the "ready" state.  The order moves to the "processing" state
+  after the client submits a request to the order's "finalize" URL and the CA
+  begins the issuance process for the certificate.  Once the certificate is
+  issued, the order enters the "valid" state.  If an error occurs at any of
+  these stages, the order moves to the "invalid" state.  The order also moves
+  to the "invalid" state if it expires or one of its authorizations enters a
+  final state other than "valid" ("expired", "revoked", or "deactivated").
 
   State Transitions for Order Objects:
 
@@ -61,13 +60,13 @@ defmodule AcmeClient.Poller do
 
 
   Authorization objects are created in the "pending" state. If one of the
-  challenges listed in the authorization transitions to the "valid" state,
-  then the authorization also changes to the "valid" state. If the client
-  attempts to fulfill a challenge and fails, or if there is an error while
-  the authorization is still pending, then the authorization transitions to
-  the "invalid" state. Once the authorization is in the "valid" state, it
-  can expire ("expired"), be deactivated by the client ("deactivated", see
-  Section 7.5.2), or revoked by the server ("revoked").
+  challenges listed in the authorization transitions to the "valid" state, then
+  the authorization also changes to the "valid" state. If the client attempts
+  to fulfill a challenge and fails, or if there is an error while the
+  authorization is still pending, then the authorization transitions to the
+  "invalid" state. Once the authorization is in the "valid" state, it can
+  expire ("expired"), be deactivated by the client ("deactivated", see Section
+  7.5.2), or revoked by the server ("revoked").
 
   State Transitions for Authorization Objects:
 
@@ -91,13 +90,13 @@ defmodule AcmeClient.Poller do
                  V              V              V
               revoked      deactivated      expired
 
-  Challenge objects are created in the "pending" state. They transition to
-  the "processing" state when the client responds to the challenge (see
-  Section 7.5.1) and the server begins attempting to validate that the client
-  has completed the challenge. Note that within the "processing" state, the
-  server may attempt to validate the challenge multiple times (see Section
-  8.2). Likewise, client requests for retries do not cause a state change.
-  If validation is successful, the challenge moves to the "valid" state; if
+  Challenge objects are created in the "pending" state. They transition to the
+  "processing" state when the client responds to the challenge (see Section
+  7.5.1) and the server begins attempting to validate that the client has
+  completed the challenge. Note that within the "processing" state, the server
+  may attempt to validate the challenge multiple times (see Section 8.2).
+  Likewise, client requests for retries do not cause a state change.  If
+  validation is successful, the challenge moves to the "valid" state; if
   there is an error, the challenge moves to the "invalid" state.
 
   State Transitions for Challenge Objects:
@@ -141,34 +140,18 @@ defmodule AcmeClient.Poller do
   @poll_interval 60_000
 
   use GenServer, restart: :temporary
-  # @behaviour :gen_statem
 
   require Logger
   alias AcmeClient.Session
 
   def start_link(args, opts \\ []) do
-    # Logger.warning("args: #{inspect(args)}")
+    # Logger.debug("args: #{inspect(args)}")
     [id | _rest] = args[:identifiers]
     name = {:via, Registry, {AcmeClient.Registry, id}}
-    # :gen_statem.start_link(__MODULE__, args, name: name, debug: :log)
-    # :gen_statem.start_link(name, __MODULE__, args, [debug: :log])
-    # :gen_statem.start_link(name, __MODULE__, args, [[debug: :trace]])
-    # :gen_statem.start_link(name, __MODULE__, args, opts)
     opts = Keyword.put_new(opts, :name, name)
     GenServer.start_link(__MODULE__, args, opts)
   end
 
-  # def child_spec(opts) do
-  #   %{
-  #     id: __MODULE__,
-  #     start: {__MODULE__, :start_link, [opts]},
-  #     type: :worker,
-  #     restart: :temporary,
-  #     shutdown: 500
-  #   }
-  # end
-
-  # @impl :gen_statem
   @impl GenServer
   def init(args) do
     Logger.debug("args: #{inspect(args)}")
@@ -224,7 +207,7 @@ defmodule AcmeClient.Poller do
   #   # {:noreply, %{state | timer: timer}}
   # end
 
-  # Convert order status to gen_statem state
+  # Convert order status to atom state
   defp order_status_to_state(%{"status" => "pending"}), do: :pending
   defp order_status_to_state(%{"status" => "ready"}), do: :ready
   defp order_status_to_state(%{"status" => "processing"}), do: :processing
@@ -244,7 +227,7 @@ defmodule AcmeClient.Poller do
   def handle_info(:timeout, %{session: nil} = state) do
     case AcmeClient.create_session() do
       {:ok, session} ->
-        Logger.info("Created ACME session")
+        Logger.debug("Created ACME session")
         {:noreply, %{state | session: session}, 0}
 
       {:error, %Tesla.Env{status: 429}} ->
@@ -545,8 +528,7 @@ defmodule AcmeClient.Poller do
 
             Logger.debug("order: #{inspect(order)}")
 
-            cb_mod = state.cb_mod
-            apply(cb_mod, :invalid_order, [order])
+            apply(state.cb_mod, :invalid_order, [order])
 
             Logger.warning("Stopping invalid #{url}")
 
@@ -571,7 +553,7 @@ defmodule AcmeClient.Poller do
     end
   end
 
-  @doc "Get details of order authorizations"
+  @doc "Read contents of authorization URLs"
   @spec get_authorizations(Session.t(), [binary()]) :: {:ok, Session.t(), list({binary(), map()})}
                                                      | {:error, term()}
   def get_authorizations(session, urls) do
@@ -611,7 +593,13 @@ defmodule AcmeClient.Poller do
     process_challenge =
       fn
         %{"status" => "valid", "type" => "dns-01"}, acc -> acc
+
+        %{"status" => "invalid", "type" => "dns-01"}, acc ->
+          Logger.warning("#{domain} Invalid challenge")
+          acc
+
         %{"status" => "processing", "type" => "dns-01"}, acc -> acc
+
         %{"status" => "pending", "type" => "dns-01"} = challenge, {session, challenges} ->
           %{"token" => token, "url" => url} = challenge
           response = AcmeClient.dns_challenge_response(token, session.account_key)
