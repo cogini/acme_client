@@ -1,17 +1,17 @@
 defmodule AcmeClient.Poller do
   @moduledoc ~S"""
+    Orchestrate the steps of processing the cert order.
+
+    From https://datatracker.ietf.org/doc/html/rfc8555
+
     +-------------------+--------------------------------+--------------+
     | Action            | Request                        | Response     |
     +-------------------+--------------------------------+--------------+
-    | Get directory     | GET  directory                 | 200          |
-    |                   |                                |              |
-    | Get nonce         | HEAD newNonce                  | 200          |
-    |                   |                                |              |
-    | Create account    | POST newAccount                | 201 ->       |
-    |                   |                                | account      |
-    |                   |                                |              |
     | Submit order      | POST newOrder                  | 201 -> order |
-    |                   |                                |              |
+
+  The order is created first, synchronosly, to make sure that it succeeds.
+  Then this process is started to complete the remaining steps.
+
     | Fetch challenges  | POST-as-GET order's            | 200          |
     |                   | authorization urls             |              |
     |                   |                                |              |
@@ -57,7 +57,6 @@ defmodule AcmeClient.Poller do
        | issued           | Authorization failure
        V                  V
      valid             invalid
-
 
   Authorization objects are created in the "pending" state. If one of the
   challenges listed in the authorization transitions to the "valid" state, then
@@ -120,21 +119,6 @@ defmodule AcmeClient.Poller do
      valid              invalid
 
 
-  Create order
-  Generate challenge responses
-  Create response records
-  Create DNS records
-
-  Poll for DNS records to be available
-    Timeout
-
-  post-as-get challenge URL with {} telling server it's ready
-    Only do this for challenges with status status == pending
-  Server will attempt to validate
-    Challenge will turn to state == valid, and authorization will turn to state == valid
-  Poll order URL for status == ready
-  Finalize order with post-as-get to finalize URL with {} telling server it's ready
-  Poll order URL for status == valid
   """
   @rate_limit_times 3
   @poll_interval 60_000
@@ -175,6 +159,7 @@ defmodule AcmeClient.Poller do
       status: :pending,
       challenge_responses: args[:challenge_responses],
       dns_records: false,
+      dns_opts: args[:dns_opts] || [],
     }
 
     # Put order URL in logger metadata

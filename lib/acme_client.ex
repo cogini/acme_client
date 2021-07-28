@@ -1,6 +1,36 @@
 defmodule AcmeClient do
   @moduledoc """
   Documentation for `AcmeClient`.
+
+  From https://datatracker.ietf.org/doc/html/rfc8555
+
+    +-------------------+--------------------------------+--------------+
+    | Action            | Request                        | Response     |
+    +-------------------+--------------------------------+--------------+
+    | Get directory     | GET  directory                 | 200          |
+    |                   |                                |              |
+    | Get nonce         | HEAD newNonce                  | 200          |
+    |                   |                                |              |
+    | Create account    | POST newAccount                | 201 ->       |
+    |                   |                                | account      |
+    |                   |                                |              |
+    | Submit order      | POST newOrder                  | 201 -> order |
+    |                   |                                |              |
+    | Fetch challenges  | POST-as-GET order's            | 200          |
+    |                   | authorization urls             |              |
+    |                   |                                |              |
+    | Respond to        | POST authorization challenge   | 200          |
+    | challenges        | urls                           |              |
+    |                   |                                |              |
+    | Poll for status   | POST-as-GET order              | 200          |
+    |                   |                                |              |
+    | Finalize order    | POST order's finalize url      | 200          |
+    |                   |                                |              |
+    | Poll for status   | POST-as-GET order              | 200          |
+    |                   |                                |              |
+    | Download          | POST-as-GET order's            | 200          |
+    | certificate       | certificate url                |              |
+    +-------------------+--------------------------------+--------------+
   """
   require Logger
   alias AcmeClient.Session
@@ -438,11 +468,10 @@ defmodule AcmeClient do
   end
 
   @spec dns_validate(map()) :: list(binary())
-  def dns_validate(authorization) do
+  def dns_validate(authorization, opts \\ []) do
     %{"identifier" => identifier} = authorization
-
     host = dns_challenge_name(identifier)
-    case :inet_res.lookup(to_charlist(host), :in, :txt) do
+    case :inet_res.lookup(to_charlist(host), :in, :txt, opts) do
       [] ->
         authorization
       values ->
@@ -451,8 +480,8 @@ defmodule AcmeClient do
   end
 
   @spec dns_txt_records(binary()) :: list(binary())
-  def dns_txt_records(host) do
-    case :inet_res.lookup(to_charlist(host), :in, :txt) do
+  def dns_txt_records(host, opts \\ []) do
+    case :inet_res.lookup(to_charlist(host), :in, :txt, opts) do
       [] ->
         []
       values ->
