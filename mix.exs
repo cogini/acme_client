@@ -55,7 +55,7 @@ defmodule AcmeClient.MixProject do
       {:excoveralls, "~> 0.13.4", only: [:dev, :test], runtime: false},
       {:hackney, "~> 1.17", only: [:dev, :test]},
       {:jason, "~> 1.0"},
-      {:telemetry, "~> 0.4.2"},
+      {:telemetry, "~> 0.4"},
       {:tesla, "~> 1.4"},
       {:x509, "~> 0.8.2"},
     ]
