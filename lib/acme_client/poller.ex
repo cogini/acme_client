@@ -143,6 +143,7 @@ defmodule AcmeClient.Poller do
 
   require Logger
   alias AcmeClient.Session
+  # alias AcmeClient.Telemetry
 
   def start_link(args, opts \\ []) do
     # Logger.debug("args: #{inspect(args)}")
@@ -160,21 +161,24 @@ defmodule AcmeClient.Poller do
     poll_interval = args[:poll_interval] || @poll_interval
 
     state = %{
+      # Basic wait time between cycles
       poll_interval: poll_interval,
+      # AcmeClient session
       session: args[:session],
+      # Callback module for project specific functions
       cb_mod: args[:cb_mod],
+      # Order URL
       url: url,
+      # Order data
       order: args[:order],
-      challenge_responses: args[:challenge_responses],
+      # Order status
       status: :pending,
-      timer: nil,
-      dns_ips: args[:dns_ips] || []
+      challenge_responses: args[:challenge_responses],
+      dns_records: false,
     }
 
+    # Put order URL in logger metadata
     Logger.metadata(Keyword.put(Logger.metadata(), :order, url))
-
-    # Spread out load from multiple polling processes
-    # timeout = :rand.uniform(poll_interval)
 
     # with {:ok, session} <- AcmeClient.create_session(),
     #      {:ok, session, order} <- AcmeClient.get_object(session, url)
@@ -194,7 +198,6 @@ defmodule AcmeClient.Poller do
     # Spread out load from multiple polling processes
     Process.send_after(self(), :timeout, :rand.uniform(poll_interval))
 
-    # {:ok, :pending, data, [timeout]}
     # {:ok, state, {:continue, :spread}}
     {:ok, state}
   end
@@ -203,8 +206,6 @@ defmodule AcmeClient.Poller do
   #   # Spread out load from multiple polling processes
   #   Process.send_after(self(), :timeout, :rand.uniform(poll_interval))
   #   {:noreply, state}
-  #   # {:ok, timer} = :timer.send_interval(state.poll_interval, :timeout)
-  #   # {:noreply, %{state | timer: timer}}
   # end
 
   # Convert order status to atom state
@@ -214,17 +215,13 @@ defmodule AcmeClient.Poller do
   defp order_status_to_state(%{"status" => "valid"}), do: :valid
   defp order_status_to_state(%{"status" => "invalid"}), do: :invalid
 
-  # @impl :gen_statem
-  # def callback_mode, do: :handle_event_function
-  # def callback_mode, do: :state_functions
-  # def callback_mode, do: [:state_functions, :state_enter]
-
   # Order objects are created in the "pending" state. Once all of the
   # authorizations listed in the order object are in the "valid" state, the
   # order transitions to the "ready" state.
 
   @impl true
   def handle_info(:timeout, %{session: nil} = state) do
+    # start_time = Telemetry.start(:create_session, metadata)
     case AcmeClient.create_session() do
       {:ok, session} ->
         Logger.debug("Created ACME session")
@@ -252,7 +249,6 @@ defmodule AcmeClient.Poller do
         case order_status_to_state(order) do
           ^status ->
             key = session.account_key
-            cb_mod = state.cb_mod
 
             case get_authorizations(session, order["authorizations"]) do
               {:ok, session, authorizations} ->
@@ -262,7 +258,7 @@ defmodule AcmeClient.Poller do
                   |> Enum.map(fn {_url, auth} -> create_challenge_responses(auth, key) end)
                   |> List.flatten()
                   |> merge_challenge_responses()
-                  |> publish_challenge_responses(cb_mod)
+                  |> publish_challenge_responses(state.cb_mod)
 
                 {:noreply, %{state | challenge_responses: responses, session: session}, 0}
 
@@ -298,7 +294,28 @@ defmodule AcmeClient.Poller do
     end
   end
 
-  def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses} = state) do
+  def handle_info(:timeout, %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state) do
+    Logger.info("#{status}, processing challenges")
+    records_found =
+      for {_domain, responses} <- challenge_responses, response <- responses do
+        %{"domain" => domain, "response" => response_code} = response
+
+        host = AcmeClient.dns_challenge_name(domain)
+        txt_records = AcmeClient.dns_txt_records(host)
+
+        if response_code in txt_records do
+          Logger.info("#{state.url}: DNS found #{host} #{response_code}")
+          true
+        else
+          Logger.info("#{state.url}: DNS not found #{host} #{response_code}")
+          false
+        end
+      end
+
+    {:noreply, %{state | dns_records: Enum.all?(records_found)}, state.poll_interval}
+  end
+
+  def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state) do
     %{url: url, session: session, status: status} = state
     Logger.info("#{status}, processing challenges")
     case AcmeClient.get_object(session, url) do
@@ -313,36 +330,24 @@ defmodule AcmeClient.Poller do
                   nil
 
                 session ->
-                  %{"domain" => domain, "url" => ready_url, "response" => response_code} = response
+                  %{"domain" => domain, "url" => ready_url} = response
 
-                  host = AcmeClient.dns_challenge_name(domain)
+                  case AcmeClient.poke_url(session, ready_url) do
+                    {:ok, session, _poke_result} ->
+                      Logger.info("#{url}: Poked #{ready_url}")
+                      session
 
-                  txt_records = AcmeClient.dns_txt_records(host)
-                  # Logger.debug("txt_records for #{host}: #{inspect(txt_records)}")
+                    {:error, session, :throttled = reason} ->
+                      Logger.warning("#{url}: #{domain} Error poking #{ready_url}: #{reason}")
+                      session
 
-                  if response_code in txt_records do
-                    Logger.info("#{url}: DNS found #{host} #{response_code}")
+                    {:error, session, reason} ->
+                      Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
+                      session
 
-                    case AcmeClient.poke_url(session, ready_url) do
-                      {:ok, session, _poke_result} ->
-                        Logger.info("#{url}: Poked #{ready_url}")
-                        session
-
-                      {:error, session, :throttled = reason} ->
-                        Logger.warning("#{url}: #{domain} Error poking #{ready_url}: #{reason}")
-                        session
-
-                      {:error, session, reason} ->
-                        Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
-                        session
-
-                      {:error, reason} ->
-                        Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
-                        nil
-                    end
-                  else
-                    Logger.info("#{url}: DNS not found #{host} #{response_code}")
-                    session
+                    {:error, reason} ->
+                      Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
+                      nil
                   end
               end
 
@@ -377,9 +382,8 @@ defmodule AcmeClient.Poller do
 
             finalize_url = order["finalize"]
             domain = get_domain(order["identifiers"])
-            cb_mod = state.cb_mod
 
-            with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(cb_mod, :get_csr, [domain])},
+            with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
                  {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
                  {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
                  {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
@@ -472,10 +476,9 @@ defmodule AcmeClient.Poller do
             case AcmeClient.get_object(session, order["certificate"]) do
               {:ok, session, certificate} ->
                 Logger.debug("certificate: #{certificate}")
-                cb_mod = state.cb_mod
-                case apply(cb_mod, :process_certificate, [order, certificate]) do
+                case apply(state.cb_mod, :process_certificate, [order, certificate]) do
                   :ok ->
-                    apply(cb_mod, :ack_order, [order])
+                    apply(state.cb_mod, :ack_order, [order])
 
                     Logger.warning("Stopping valid #{url}")
                     {:stop, :normal, state}
