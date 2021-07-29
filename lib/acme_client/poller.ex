@@ -223,59 +223,42 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :pending, challenge_responses: nil} = state) do
-    %{url: url, session: session, status: status} = state
-    Logger.info("#{status}, processing authorizations")
-    case AcmeClient.get_object(session, url) do
+    Logger.info("#{state.status}, processing authorizations")
+    case get_order_status(state) do
       {:ok, session, order} ->
 
         id = get_id(order["identifiers"])
         Logger.metadata(Keyword.put(Logger.metadata(), :id, id))
 
-        case order_status_to_state(order) do
-          ^status ->
-            key = session.account_key
+        key = session.account_key
 
-            case get_authorizations(session, order["authorizations"]) do
-              {:ok, session, authorizations} ->
-                # Logger.debug("#{url}: authorizations #{inspect(authorizations)}")
-                responses =
-                  authorizations
-                  |> Enum.map(fn {_url, auth} -> create_challenge_responses(auth, key) end)
-                  |> List.flatten()
-                  |> merge_challenge_responses()
-                  |> publish_challenge_responses(state.cb_mod)
+        case get_authorizations(session, order["authorizations"]) do
+          {:ok, session, authorizations} ->
+            # Logger.debug("#{url}: authorizations #{inspect(authorizations)}")
+            responses =
+              authorizations
+              |> Enum.map(fn {_url, auth} -> create_challenge_responses(auth, key) end)
+              |> List.flatten()
+              |> merge_challenge_responses()
+              |> publish_challenge_responses(state.cb_mod)
 
-                {:noreply, %{state | challenge_responses: responses, session: session}, 0}
+            {:noreply, %{state | challenge_responses: responses, session: session}, 0}
 
-              {:error, :throttled} ->
-                Logger.warning("HTTP rate limited throttled")
-                {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+          {:error, :throttled} ->
+            Logger.warning("HTTP rate limited throttled")
+            {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
-              {:error, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-                Logger.warning("HTTP rate limited /acme")
-                {:noreply, %{state | session: nil}, @rate_limit_times * state.poll_interval}
+          {:error, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+            Logger.warning("HTTP rate limited /acme")
+            {:noreply, %{state | session: nil}, @rate_limit_times * state.poll_interval}
 
-              {:error, reason} ->
-                Logger.error("Error getting authorizations: #{inspect(reason)}")
-                {:noreply, %{state | session: nil}, state.poll_interval}
-            end
-
-          new_status ->
-            Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status, session: session}, 0}
+          {:error, reason} ->
+            Logger.error("Error getting authorizations: #{inspect(reason)}")
+            {:noreply, %{state | session: nil}, state.poll_interval}
         end
 
-      {:error, session, :throttled} ->
-        Logger.warning("HTTP rate limited throttled")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.warning("HTTP rate limited /acme")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      err ->
-        Logger.error("Error getting order: #{inspect(err)}")
-        {:noreply, %{state | session: nil}, state.poll_interval}
+      other ->
+        other
     end
   end
 
@@ -736,4 +719,33 @@ defmodule AcmeClient.Poller do
 
   def get_id(identifiers), do: get_domain(identifiers)
 
+  @doc "Get order, handling errors and state transition."
+  def get_order_status(state) do
+    %{url: url, session: session, status: status} = state
+
+    case AcmeClient.get_object(session, url) do
+      {:ok, session, order} ->
+
+        case order_status_to_state(order) do
+          ^status ->
+            {:ok, session, order}
+
+          new_status ->
+            Logger.info("Transition to #{inspect(new_status)}")
+            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
+        end
+
+      {:error, session, :throttled} ->
+        Logger.warning("HTTP rate limited throttled")
+        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+
+      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+        Logger.warning("HTTP rate limited /acme")
+        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+
+      err ->
+        Logger.error("Error getting order: #{inspect(err)}")
+        {:noreply, %{state | session: nil}, state.poll_interval}
+    end
+  end
 end
