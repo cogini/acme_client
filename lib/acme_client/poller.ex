@@ -226,10 +226,7 @@ defmodule AcmeClient.Poller do
     Logger.info("#{state.status}, processing authorizations")
     case get_order_status(state) do
       {:ok, session, order} ->
-
-        id = get_id(order["identifiers"])
-        Logger.metadata(Keyword.put(Logger.metadata(), :id, id))
-
+        set_logger_metadata(order)
         key = session.account_key
 
         case get_authorizations(session, order["authorizations"]) do
@@ -263,7 +260,7 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state) do
-    Logger.info("#{status}, processing challenges")
+    Logger.info("#{status}, polling until DNS ready")
     records_found =
       for {_domain, responses} <- challenge_responses, response <- responses do
         %{"domain" => domain, "response" => response_code} = response
@@ -288,6 +285,8 @@ defmodule AcmeClient.Poller do
     Logger.info("#{status}, processing challenges")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+        set_logger_metadata(order)
+
         case order_status_to_state(order) do
           ^status ->
 
@@ -345,6 +344,8 @@ defmodule AcmeClient.Poller do
     Logger.info("#{status}, finalizing")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+        set_logger_metadata(order)
+
         case order_status_to_state(order) do
           ^status ->
 
@@ -410,6 +411,8 @@ defmodule AcmeClient.Poller do
     Logger.info("#{status}, polling until valid")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+        set_logger_metadata(order)
+
         case order_status_to_state(order) do
           ^status ->
             {:noreply, %{state | session: session}, state.poll_interval}
@@ -438,6 +441,8 @@ defmodule AcmeClient.Poller do
     Logger.info("#{status}, downloading certificate")
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+        set_logger_metadata(order)
+
         case order_status_to_state(order) do
           ^status ->
 
@@ -494,6 +499,8 @@ defmodule AcmeClient.Poller do
 
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+        set_logger_metadata(order)
+
         case order_status_to_state(order) do
           ^status ->
 
@@ -719,12 +726,22 @@ defmodule AcmeClient.Poller do
 
   def get_id(identifiers), do: get_domain(identifiers)
 
+  def set_logger_metadata(order) do
+    metadata = Logger.metadata()
+    if not Keyword.has_key?(metadata, :id) do
+      id = get_id(order["identifiers"])
+      Logger.metadata(Keyword.put(metadata, :id, id))
+    end
+  end
+
   @doc "Get order, handling errors and state transition."
   def get_order_status(state) do
     %{url: url, session: session, status: status} = state
 
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
+
+        set_logger_metadata(order)
 
         case order_status_to_state(order) do
           ^status ->
