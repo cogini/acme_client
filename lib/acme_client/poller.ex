@@ -9,8 +9,8 @@ defmodule AcmeClient.Poller do
     +-------------------+--------------------------------+--------------+
     | Submit order      | POST newOrder                  | 201 -> order |
 
-  The order is created first, synchronosly, to make sure that it succeeds.
-  Then this process is started to complete the remaining steps.
+  The order is created first, synchronously, to make sure that it succeeds.
+  Then the Poller process is started to complete the remaining steps.
 
     | Fetch challenges  | POST-as-GET order's            | 200          |
     |                   | authorization urls             |              |
