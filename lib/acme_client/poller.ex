@@ -283,61 +283,43 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state) do
-    %{url: url, session: session, status: status} = state
-    Logger.info("#{status}, processing challenges")
-    case AcmeClient.get_object(session, url) do
+    Logger.info("#{state.status}, processing challenges")
+    case get_order_status(state) do
       {:ok, session, order} ->
         set_logger_metadata(order)
 
-        case order_status_to_state(order) do
-          ^status ->
+        # Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
+        session =
+          for {_domain, responses} <- challenge_responses, response <- responses, reduce: session do
+            nil ->
+              nil
 
-            # Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
-            session =
-              for {_domain, responses} <- challenge_responses, response <- responses, reduce: session do
-                nil ->
+            session ->
+              %{"domain" => domain, "url" => ready_url} = response
+
+              case AcmeClient.poke_url(session, ready_url) do
+                {:ok, session, _poke_result} ->
+                  Logger.info("#{domain}: Poked #{ready_url}")
+                  session
+
+                {:error, session, :throttled = reason} ->
+                  Logger.warning("#{domain} Error poking #{ready_url}: #{reason}")
+                  session
+
+                {:error, session, reason} ->
+                  Logger.error("#{domain} Error poking #{ready_url}: #{inspect(reason)}")
+                  session
+
+                {:error, reason} ->
+                  Logger.error("#{domain} Error poking #{ready_url}: #{inspect(reason)}")
                   nil
-
-                session ->
-                  %{"domain" => domain, "url" => ready_url} = response
-
-                  case AcmeClient.poke_url(session, ready_url) do
-                    {:ok, session, _poke_result} ->
-                      Logger.info("#{url}: Poked #{ready_url}")
-                      session
-
-                    {:error, session, :throttled = reason} ->
-                      Logger.warning("#{url}: #{domain} Error poking #{ready_url}: #{reason}")
-                      session
-
-                    {:error, session, reason} ->
-                      Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
-                      session
-
-                    {:error, reason} ->
-                      Logger.error("#{url}: #{domain} Error poking #{ready_url}: #{inspect(reason)}")
-                      nil
-                  end
               end
+          end
 
-            {:noreply, %{state | session: session}, state.poll_interval * 2}
+        {:noreply, %{state | session: session}, state.poll_interval * 2}
 
-          new_status ->
-            Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
-        end
-
-      {:error, session, :throttled} ->
-        Logger.warning("HTTP rate limited throttled")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.warning("HTTP rate limited /acme")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      err ->
-        Logger.error("Error getting order: #{inspect(err)}")
-        {:noreply, %{state | session: nil}, state.poll_interval}
+      other ->
+        other
     end
   end
 
