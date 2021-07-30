@@ -231,7 +231,7 @@ defmodule AcmeClient.Poller do
 
         case get_authorizations(session, order["authorizations"]) do
           {:ok, session, authorizations} ->
-            # Logger.debug("#{url}: authorizations #{inspect(authorizations)}")
+            Logger.debug("authorizations: #{inspect(authorizations)}")
             responses =
               authorizations
               |> Enum.map(fn {_url, auth} -> create_challenge_responses(auth, key) end)
@@ -535,6 +535,7 @@ defmodule AcmeClient.Poller do
   @spec get_authorizations(Session.t(), [binary()]) :: {:ok, Session.t(), list({binary(), map()})}
                                                      | {:error, term()}
   def get_authorizations(session, urls) do
+    Logger.debug("authorizations: #{inspect(urls)}")
     {session, results} =
       Enum.reduce(urls, {session, []},
         fn
