@@ -259,6 +259,7 @@ defmodule AcmeClient do
     case post_as_get(session, url) do
       {:ok, session, result} ->
         {:ok, session, result.body}
+
       error ->
         error
     end
@@ -272,9 +273,11 @@ defmodule AcmeClient do
           case AcmeClient.post_as_get(session, url) do
             {:ok, session, result} ->
               {session, [result.body | acc]}
+
             {:error, session, reason} ->
               Logger.error("Error reading #{url}: #{inspect(reason)}")
               {session, acc}
+
             {:error, reason} ->
               Logger.error("Error reading #{url}: #{inspect(reason)}")
               {session, acc}
