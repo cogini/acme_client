@@ -173,7 +173,7 @@ defmodule AcmeClient do
 
     {:ok, session} = AcmeClient.create_session()
   """
-  @spec create_session(Keyword.t()) :: {:ok, Session.t()} | {:error, term()}
+  @spec create_session(Keyword.t()) :: {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
   def create_session(opts \\ []) do
     key =
       case Keyword.fetch(opts, :account_key) do
