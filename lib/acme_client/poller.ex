@@ -572,7 +572,21 @@ defmodule AcmeClient.Poller do
     process_challenge =
       fn
         %{"status" => "valid", "type" => "dns-01"} = challenge, {session, challenges} ->
-          {session, [challenge | challenges]}
+          %{"token" => token} = challenge
+          response = AcmeClient.dns_challenge_response(token, session.account_key)
+          challenge = Map.put(challenge, "response", response)
+          Logger.info("challenge: #{inspect(challenge)}")
+
+          host = AcmeClient.dns_challenge_name(domain)
+          txt_records = AcmeClient.dns_txt_records(host)
+
+          if response in txt_records do
+            Logger.info("#{domain}: DNS challenge response found for #{host} #{response}")
+            {session, [challenge | challenges]}
+          else
+            Logger.info("#{domain}: DNS challenge response not found for #{host} #{response}")
+            {session, [challenge | challenges]}
+          end
 
         %{"status" => "invalid", "type" => "dns-01"}, acc ->
           Logger.warning("#{domain} Invalid challenge")
@@ -590,6 +604,7 @@ defmodule AcmeClient.Poller do
           txt_records = AcmeClient.dns_txt_records(host)
 
           if response in txt_records do
+            Logger.info("#{domain}: DNS challenge response found for #{host} #{response}")
             case AcmeClient.poke_url(session, url) do
               {:ok, session, poke_result} ->
                 Logger.info("#{domain}: poked #{url}: #{inspect(poke_result)}")
@@ -601,7 +616,7 @@ defmodule AcmeClient.Poller do
             end
 
           else
-            Logger.info("#{domain}: DNS challenge response not found for #{host}")
+            Logger.info("#{domain}: DNS challenge response not found for #{host} #{response}")
             {session, [challenge | challenges]}
           end
         _, acc -> acc
