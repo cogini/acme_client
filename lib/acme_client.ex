@@ -141,7 +141,7 @@ defmodule AcmeClient do
   @doc "Get nonce from server and add to session"
   @spec new_nonce(Session.t()) :: {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
   def new_nonce(session) do
-    case ExRated.check_rate(session.rate_limit_id, session.rate_limit_scale, session.rate_limit_limit) do
+    case ExRated.check_rate("nonce", 1000, 20) do
       {:ok, _count} ->
         url = session.directory["newNonce"]
         case Tesla.request(session.client, method: :head, url: url) do
