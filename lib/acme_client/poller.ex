@@ -239,6 +239,8 @@ defmodule AcmeClient.Poller do
               |> merge_challenge_responses()
               |> publish_challenge_responses(state.cb_mod)
 
+            Logger.debug("responses: #{inspect(responses)}")
+
             {:noreply, %{state | challenge_responses: responses, session: session}, 0}
 
           {:error, :throttled} ->
@@ -548,8 +550,8 @@ defmodule AcmeClient.Poller do
               {:ok, session, result} ->
                 {session, [{url, result.body} | results]}
 
-              {:error, session, reason} ->
-                {session, [{url, {:error, reason}} | results]}
+              {:error, _session, reason} ->
+                {nil, [{url, {:error, reason}} | results]}
 
               {:error, reason}
                 {nil, [{url, {:error, reason}} | results]}
@@ -581,10 +583,10 @@ defmodule AcmeClient.Poller do
           txt_records = AcmeClient.dns_txt_records(host)
 
           if response in txt_records do
-            Logger.info("#{domain}: DNS challenge response found for #{host} #{response}")
+            Logger.info("#{domain}: DNS found for #{host} #{response}")
             {session, [challenge | challenges]}
           else
-            Logger.info("#{domain}: DNS challenge response not found for #{host} #{response}")
+            Logger.info("#{domain}: DNS not found for #{host} #{response}")
             {session, [challenge | challenges]}
           end
 
@@ -635,7 +637,7 @@ defmodule AcmeClient.Poller do
   end
 
   def process_authorization(%{"status" => status}, acc) do
-    Logger.warning("authorization status #{status}")
+    Logger.warning("Authorization status #{status}")
     acc
   end
 
@@ -675,7 +677,7 @@ defmodule AcmeClient.Poller do
   def create_challenge_responses(authorization, key) do
     %{"identifier" => %{"type" => "dns", "value" => domain}} = authorization
     for challenge <- authorization["challenges"],
-      challenge["status"] == "pending",
+      # challenge["status"] in ["pending", "valid"],
       challenge["type"] == "dns-01"
     do
       response = AcmeClient.dns_challenge_response(challenge["token"], key)
