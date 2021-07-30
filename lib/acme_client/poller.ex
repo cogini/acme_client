@@ -571,7 +571,8 @@ defmodule AcmeClient.Poller do
 
     process_challenge =
       fn
-        %{"status" => "valid", "type" => "dns-01"}, acc -> acc
+        %{"status" => "valid", "type" => "dns-01"} = challenge, {session, challenges} ->
+          {session, [challenge | challenges]}
 
         %{"status" => "invalid", "type" => "dns-01"}, acc ->
           Logger.warning("#{domain} Invalid challenge")
