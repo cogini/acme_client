@@ -344,7 +344,7 @@ defmodule AcmeClient.Poller do
          {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
          {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
     do
-      case AcmeClient.poke_url(session, finalize_url) do
+      case AcmeClient.post_as_get(session, finalize_url, json) do
         {:ok, session, %{status: 200}} ->
           Logger.debug("CSR: #{json}")
           Logger.info("Finalized order #{finalize_url}")
