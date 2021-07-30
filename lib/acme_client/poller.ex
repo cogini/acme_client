@@ -333,51 +333,57 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :ready = status} = state) do
-    %{session: session, order: order} = state
     Logger.info("#{status}, finalizing order")
 
-    finalize_url = order["finalize"]
-    domain = get_domain(order["identifiers"])
+    case get_order_status(state) do
+      {:ok, session, order} ->
+        set_logger_metadata(order)
 
-    with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
-         {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
-         {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
-         {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
-    do
-      case AcmeClient.post_as_get(session, finalize_url, json) do
-        {:ok, session, %{status: 200}} ->
-          Logger.debug("CSR: #{json}")
-          Logger.info("Finalized order #{finalize_url}")
-          {:noreply, %{state | session: session}, 0}
+        finalize_url = order["finalize"]
+        domain = get_domain(order["identifiers"])
 
-        {:error, session, :throttled} ->
-          Logger.warning("HTTP rate limited throttled")
-          {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+        with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
+             {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
+             {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
+             {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
+        do
+          case AcmeClient.post_as_get(session, finalize_url, json) do
+            {:ok, session, %{status: 200}} ->
+              Logger.debug("CSR: #{json}")
+              Logger.info("Finalized order #{finalize_url}")
+              {:noreply, %{state | session: session, order: order}, 0}
 
-        {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-          Logger.warning("HTTP rate limited /acme")
-          {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+            {:error, session, :throttled} ->
+              Logger.warning("HTTP rate limited throttled")
+              {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
 
-        {:error, session, reason} ->
-          Logger.error("Error finalizing: #{inspect(reason)}")
-          {:noreply, %{state | session: session}, state.poll_interval}
+            {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+              Logger.warning("HTTP rate limited /acme")
+              {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
 
-        {:error, %{status: 403, body: %{"type" => "urn:ietf:params:acme:error:orderNotReady",
-          # "detail" => "Order's status (\"valid\") is not acceptable for finalization"
-          }}}
-          Logger.warning("Already finalized")
-          {:noreply, %{state | session: nil}, 0}
+            {:error, session, reason} ->
+              Logger.error("Error finalizing: #{inspect(reason)}")
+              {:noreply, %{state | session: session, order: order}, state.poll_interval}
 
-        {:error, reason}
-          Logger.error("Error finalizing: #{inspect(reason)}")
-          {:noreply, %{state | session: nil}, state.poll_interval}
-      end
-    else
-      err ->
-        Logger.error("Error finalizing: #{inspect(err)}")
-        apply(state.cb_mod, :handle_finalization_error, [order, err])
+            {:error, %{status: 403, body: %{"type" => "urn:ietf:params:acme:error:orderNotReady",
+              # "detail" => "Order's status (\"valid\") is not acceptable for finalization"
+              }}}
+              Logger.warning("Already finalized")
+              {:noreply, %{state | session: nil, order: order}, 0}
 
-        {:noreply, %{state | session: nil}, state.poll_interval}
+            {:error, reason}
+              Logger.error("Error finalizing: #{inspect(reason)}")
+              {:noreply, %{state | session: nil, order: order}, state.poll_interval}
+          end
+        else
+          err ->
+            Logger.error("Error finalizing: #{inspect(err)}")
+            apply(state.cb_mod, :handle_finalization_error, [order, err])
+
+            {:noreply, %{state | session: nil, order: order}, state.poll_interval}
+        end
+      other ->
+        other
     end
   end
 
