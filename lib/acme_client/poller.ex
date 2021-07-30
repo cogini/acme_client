@@ -363,7 +363,8 @@ defmodule AcmeClient.Poller do
           {:noreply, %{state | session: session}, state.poll_interval}
 
         {:error, %{status: 403, body: %{"type" => "urn:ietf:params:acme:error:orderNotReady",
-          "detail" => "Order's status (\"valid\") is not acceptable for finalization"}}}
+          # "detail" => "Order's status (\"valid\") is not acceptable for finalization"
+          }}}
           Logger.warning("Already finalized")
           {:noreply, %{state | session: nil}, 0}
 
