@@ -299,7 +299,7 @@ defmodule AcmeClient.Poller do
 
               case AcmeClient.poke_url(session, ready_url) do
                 {:ok, session, _poke_result} ->
-                  Logger.info("#{domain}: Poked #{ready_url}")
+                  Logger.info("#{domain}: Challenge ready #{ready_url}")
                   session
 
                 {:error, session, :throttled = reason} ->
@@ -344,7 +344,7 @@ defmodule AcmeClient.Poller do
                 case AcmeClient.post_as_get(session, finalize_url, json) do
                   {:ok, session, %{status: 200}} ->
                     Logger.debug("CSR: #{json}")
-                    Logger.info("Finalized #{finalize_url}")
+                    Logger.info("Finalized order #{finalize_url}")
                     {:noreply, %{state | session: session}, 0}
 
                   {:error, session, :throttled} ->
@@ -421,60 +421,42 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :valid} = state) do
-    %{url: url, session: session, status: status} = state
-    Logger.info("#{status}, downloading certificate")
-    case AcmeClient.get_object(session, url) do
-      {:ok, session, order} ->
-        set_logger_metadata(order)
+    Logger.info("#{state.status}, downloading certificate")
+     case get_order_status(state) do
+       {:ok, session, order} ->
+         set_logger_metadata(order)
 
-        case order_status_to_state(order) do
-          ^status ->
-
-            case AcmeClient.get_object(session, order["certificate"]) do
-              {:ok, session, certificate} ->
-                Logger.debug("certificate: #{certificate}")
-                case apply(state.cb_mod, :process_certificate, [order, certificate]) do
-                  :ok ->
-                    apply(state.cb_mod, :ack_order, [order])
-
-                    Logger.warning("Stopping valid #{url}")
-                    {:stop, :normal, state}
-
-                  err ->
-                    Logger.error("Error running process_certificate: #{inspect(err)}")
-                    {:noreply, %{state | session: session}, state.poll_interval}
-                end
-
-              {:error, session, :throttled} ->
-                Logger.warning("HTTP rate limited throttled")
-                {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-              {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-                Logger.warning("HTTP rate limited /acme")
-                {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-              err ->
-                Logger.error("Error reading certificate: #{inspect(err)}")
-                {:noreply, %{state | session: nil}, state.poll_interval}
-            end
-
-          new_status ->
-            Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
-        end
-
-      {:error, session, :throttled} ->
-        Logger.warning("HTTP rate limited throttled")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.warning("HTTP rate limited /acme")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      err ->
-        Logger.error("Error getting order: #{inspect(err)}")
-        {:noreply, %{state | session: nil}, state.poll_interval}
-    end
+         case AcmeClient.get_object(session, order["certificate"]) do
+           {:ok, session, certificate} ->
+             Logger.info("certificate: #{certificate}")
+             case apply(state.cb_mod, :process_certificate, [order, certificate]) do
+               :ok ->
+                 apply(state.cb_mod, :ack_order, [order])
+ 
+                 Logger.warning("Stopping valid #{state.url}")
+                 {:stop, :normal, state}
+ 
+               err ->
+                 Logger.error("Error running process_certificate: #{inspect(err)}")
+                 {:noreply, %{state | session: session}, state.poll_interval}
+             end
+ 
+           {:error, session, :throttled} ->
+             Logger.warning("HTTP rate limited throttled")
+             {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+ 
+           {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+             Logger.warning("HTTP rate limited /acme")
+             {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+ 
+           err ->
+             Logger.error("Error reading certificate: #{inspect(err)}")
+             {:noreply, %{state | session: nil}, state.poll_interval}
+         end
+    
+       other ->
+         other
+     end
   end
 
   def handle_info(:timeout, %{status: :invalid} = state) do
@@ -767,3 +749,10 @@ defmodule AcmeClient.Poller do
     end
   end
 end
+    # case get_order_status(state) do
+    #   {:ok, session, order} ->
+    #     set_logger_metadata(order)
+    #
+    #   other ->
+    #     other
+    # end
