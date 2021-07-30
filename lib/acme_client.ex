@@ -139,18 +139,23 @@ defmodule AcmeClient do
   end
 
   @doc "Get nonce from server and add to session"
-  @spec new_nonce(Session.t()) :: {:ok, Session.t()} | {:error, term()}
+  @spec new_nonce(Session.t()) :: {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
   def new_nonce(session) do
-    url = session.directory["newNonce"]
-    case Tesla.request(session.client, method: :head, url: url) do
-      {:ok, %{status: 200, headers: headers}} ->
-        {:ok, set_nonce(session, headers)}
+    case ExRated.check_rate(session.rate_limit_id, session.rate_limit_scale, session.rate_limit_limit) do
+      {:ok, _count} ->
+        url = session.directory["newNonce"]
+        case Tesla.request(session.client, method: :head, url: url) do
+          {:ok, %{status: 200, headers: headers}} ->
+            {:ok, set_nonce(session, headers)}
 
-      {:ok, result} ->
-        {:error, result}
+          {:ok, result} ->
+            {:error, result}
 
-      {:error, reason} ->
-        {:error, reason}
+          {:error, reason} ->
+            {:error, reason}
+        end
+      {:error, _limit} ->
+        {:error, session, :throttled}
     end
   end
 
