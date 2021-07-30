@@ -454,7 +454,7 @@ defmodule AcmeClient do
     token
     |> key_authorization(key)
     |> (&(:crypto.hash(:sha256, &1))).()
-    |> Base.url_encode64(padding: false, case: :lower)
+    |> Base.url_encode64(padding: false)
   end
 
   def dns_challenge_name(%{"type" => "dns", "value" => domain}) do
