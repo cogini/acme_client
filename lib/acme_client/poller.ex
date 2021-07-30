@@ -362,6 +362,11 @@ defmodule AcmeClient.Poller do
           Logger.error("Error finalizing: #{inspect(reason)}")
           {:noreply, %{state | session: session}, state.poll_interval}
 
+        {:error, %{status: 403, body: %{"type" => "urn:ietf:params:acme:error:orderNotReady",
+          "detail" => "Order's status (\"valid\") is not acceptable for finalization"}}}
+          Logger.warning("Already finalized")
+          {:noreply, %{state | session: nil}, 0}
+
         {:error, reason}
           Logger.error("Error finalizing: #{inspect(reason)}")
           {:noreply, %{state | session: nil}, state.poll_interval}
