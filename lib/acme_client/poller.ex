@@ -163,7 +163,7 @@ defmodule AcmeClient.Poller do
     }
 
     # Put order URL in logger metadata
-    Logger.metadata(Keyword.put(Logger.metadata(), :order, url))
+    Logger.metadata(Keyword.put(Logger.metadata(), :url, url))
 
     # with {:ok, session} <- AcmeClient.create_session(),
     #      {:ok, session, order} <- AcmeClient.get_object(session, url)
@@ -227,7 +227,8 @@ defmodule AcmeClient.Poller do
   end
 
   def handle_info(:timeout, %{status: :pending, challenge_responses: nil} = state) do
-    Logger.info("#{state.status}, processing authorizations")
+    Logger.info("#{state.status}, creating challenge responses")
+
     case get_order_status(state) do
       {:ok, session, order} ->
         set_logger_metadata(order)
@@ -236,6 +237,7 @@ defmodule AcmeClient.Poller do
         case get_authorizations(session, order["authorizations"]) do
           {:ok, session, authorizations} ->
             Logger.debug("authorizations: #{inspect(authorizations)}")
+
             responses =
               authorizations
               |> Enum.map(fn {_url, auth} -> create_challenge_responses(auth, key) end)
@@ -267,6 +269,7 @@ defmodule AcmeClient.Poller do
 
   def handle_info(:timeout, %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state) do
     Logger.info("#{status}, polling until DNS ready")
+
     records_found =
       for {_domain, responses} <- challenge_responses, response <- responses do
         %{"domain" => domain, "response" => response_code} = response
@@ -288,6 +291,8 @@ defmodule AcmeClient.Poller do
 
   def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state) do
     Logger.info("#{state.status}, processing challenges")
+
+    # Poll until status is "ready"
     case get_order_status(state) do
       {:ok, session, order} ->
         set_logger_metadata(order)
@@ -320,119 +325,80 @@ defmodule AcmeClient.Poller do
               end
           end
 
-        {:noreply, %{state | session: session}, state.poll_interval * 2}
+        {:noreply, %{state | session: session, order: order}, state.poll_interval * 2}
 
       other ->
         other
     end
   end
 
-  def handle_info(:timeout, %{status: :ready} = state) do
-    %{url: url, session: session, status: status} = state
-    Logger.info("#{status}, finalizing")
-    case AcmeClient.get_object(session, url) do
-      {:ok, session, order} ->
-        set_logger_metadata(order)
+  def handle_info(:timeout, %{status: :ready = status} = state) do
+    %{session: session, order: order} = state
+    Logger.info("#{status}, finalizing order")
 
-        case order_status_to_state(order) do
-          ^status ->
+    finalize_url = order["finalize"]
+    domain = get_domain(order["identifiers"])
 
-            finalize_url = order["finalize"]
-            domain = get_domain(order["identifiers"])
+    with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
+         {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
+         {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
+         {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
+    do
+      case AcmeClient.poke_url(session, finalize_url) do
+        {:ok, session, %{status: 200}} ->
+          Logger.debug("CSR: #{json}")
+          Logger.info("Finalized order #{finalize_url}")
+          {:noreply, %{state | session: session}, 0}
 
-            with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
-                 {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
-                 {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
-                 {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
-            do
-                case AcmeClient.post_as_get(session, finalize_url, json) do
-                  {:ok, session, %{status: 200}} ->
-                    Logger.debug("CSR: #{json}")
-                    Logger.info("Finalized order #{finalize_url}")
-                    {:noreply, %{state | session: session}, 0}
+        {:error, session, :throttled} ->
+          Logger.warning("HTTP rate limited throttled")
+          {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
-                  {:error, session, :throttled} ->
-                    Logger.warning("HTTP rate limited throttled")
-                    {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+        {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+          Logger.warning("HTTP rate limited /acme")
+          {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
-                  {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-                    Logger.warning("HTTP rate limited /acme")
-                    {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+        {:error, session, reason} ->
+          Logger.error("Error finalizing: #{inspect(reason)}")
+          {:noreply, %{state | session: session}, state.poll_interval}
 
-                  {:error, session, reason} ->
-                    Logger.error("Error finalizing: #{inspect(reason)}")
-                    {:noreply, %{state | session: session}, state.poll_interval}
-
-                  {:error, reason}
-                    Logger.error("Error finalizing: #{inspect(reason)}")
-                    {:noreply, %{state | session: nil}, state.poll_interval}
-                end
-            else
-              err ->
-                Logger.error("Error finalizing: #{inspect(err)}")
-                apply(state.cb_mod, :handle_finalization_error, [order, err])
-
-                {:noreply, %{state | session: nil}, state.poll_interval}
-            end
-
-          new_status ->
-            Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
-        end
-
-      {:error, session, :throttled} ->
-        Logger.warning("HTTP rate limited throttled")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.warning("HTTP rate limited /acme")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
+        {:error, reason}
+          Logger.error("Error finalizing: #{inspect(reason)}")
+          {:noreply, %{state | session: nil}, state.poll_interval}
+      end
+    else
       err ->
-        Logger.error("Error getting order: #{inspect(err)}")
+        Logger.error("Error finalizing: #{inspect(err)}")
+        apply(state.cb_mod, :handle_finalization_error, [order, err])
+
         {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
 
-  def handle_info(:timeout, %{status: :processing} = state) do
-    %{url: url, session: session, status: status} = state
-    Logger.info("#{status}, polling until valid")
-    case AcmeClient.get_object(session, url) do
+  def handle_info(:timeout, %{status: :processing = status} = state) do
+    Logger.info("#{status}, polling until status = 'valid'")
+
+    case get_order_status(state) do
       {:ok, session, order} ->
         set_logger_metadata(order)
 
-        case order_status_to_state(order) do
-          ^status ->
-            {:noreply, %{state | session: session}, state.poll_interval}
-
-          new_status ->
-            Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
-        end
-
-      {:error, session, :throttled} ->
-        Logger.warning("HTTP rate limited throttled")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.warning("HTTP rate limited /acme")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      err ->
-        Logger.error("Error getting order: #{inspect(err)}")
-        {:noreply, %{state | session: nil}, state.poll_interval}
+        {:noreply, %{state | session: session, order: order}, state.poll_interval}
+      other ->
+        other
     end
   end
 
   def handle_info(:timeout, %{status: :valid} = state) do
     Logger.info("#{state.status}, downloading certificate")
-     case get_order_status(state) do
-       {:ok, session, order} ->
-         set_logger_metadata(order)
+
+    case get_order_status(state) do
+      {:ok, session, order} ->
+        set_logger_metadata(order)
 
          case AcmeClient.get_object(session, order["certificate"]) do
            {:ok, session, certificate} ->
              Logger.info("certificate: #{certificate}")
+
              case apply(state.cb_mod, :process_certificate, [order, certificate]) do
                :ok ->
                  apply(state.cb_mod, :ack_order, [order])
@@ -442,62 +408,45 @@ defmodule AcmeClient.Poller do
  
                err ->
                  Logger.error("Error running process_certificate: #{inspect(err)}")
-                 {:noreply, %{state | session: session}, state.poll_interval}
+                 {:noreply, %{state | session: session, order: order}, state.poll_interval}
              end
  
            {:error, session, :throttled} ->
              Logger.warning("HTTP rate limited throttled")
-             {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+             {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
  
            {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
              Logger.warning("HTTP rate limited /acme")
-             {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
+             {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
  
            err ->
              Logger.error("Error reading certificate: #{inspect(err)}")
-             {:noreply, %{state | session: nil}, state.poll_interval}
+             {:noreply, %{state | session: nil, order: order}, state.poll_interval}
          end
-    
-       other ->
-         other
-     end
+
+      other ->
+        other
+    end
   end
 
-  def handle_info(:timeout, %{status: :invalid} = state) do
-    %{url: url, session: session, status: status} = state
+  def handle_info(:timeout, %{status: :invalid = status} = state) do
     Logger.warning("#{status}, invalid order")
+    %{url: url} = state
 
-    case AcmeClient.get_object(session, url) do
-      {:ok, session, order} ->
+    case get_order_status(state) do
+      {:ok, _session, order} ->
         set_logger_metadata(order)
 
-        case order_status_to_state(order) do
-          ^status ->
+        Logger.debug("order: #{inspect(order)}")
 
-            Logger.debug("order: #{inspect(order)}")
+        apply(state.cb_mod, :invalid_order, [order])
 
-            apply(state.cb_mod, :invalid_order, [order])
+        Logger.warning("Stopping invalid #{url}")
 
-            Logger.warning("Stopping invalid #{url}")
+        {:stop, :normal, state}
 
-            {:stop, :normal, state}
-
-          new_status ->
-            Logger.info("Transition to #{inspect(new_status)}")
-            {:noreply, %{state | status: new_status, order: order, session: session}, 0}
-        end
-
-      {:error, session, :throttled} ->
-        Logger.warning("HTTP rate limited throttled")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-        Logger.warning("HTTP rate limited /acme")
-        {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
-
-      err ->
-        Logger.error("Error getting order: #{inspect(err)}")
-        {:noreply, %{state | session: nil}, state.poll_interval}
+      other ->
+        other
     end
   end
 
