@@ -748,7 +748,7 @@ defmodule AcmeClient.Poller do
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
       {:error, session, %{status: 404, body: %{"type" => "urn:ietf:params:acme:error:malformed"} = body}} ->
-        Logger.warning("Order not found for #{url} #{inspect(body.detail)}")
+        Logger.warning("Order not found for #{url} #{inspect(body["detail"])}")
         {:noreply, %{state | session: session}, state.poll_interval}
 
       err ->
