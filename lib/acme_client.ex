@@ -462,23 +462,38 @@ defmodule AcmeClient do
     "_acme-challenge." <> domain
   end
 
-  @spec dns_validate(map()) :: list(binary())
+  @spec dns_validate(map(), Keyword.t()) :: list(binary())
   def dns_validate(authorization, opts \\ []) do
     %{"identifier" => identifier} = authorization
     host = dns_challenge_name(identifier)
     case :inet_res.lookup(to_charlist(host), :in, :txt, opts) do
       [] ->
         authorization
+
       values ->
         for [value | _rest] <- values, do: to_string(value)
     end
   end
 
-  @spec dns_txt_records(binary()) :: list(binary())
+  @doc "Get TXT records for host or empty list on failure"
+  @spec dns_txt_records(binary(), Keyword.t()) :: list(binary())
   def dns_txt_records(host, opts \\ []) do
     case :inet_res.lookup(to_charlist(host), :in, :txt, opts) do
       [] ->
         []
+
+      values ->
+        for [value | _rest] <- values, do: to_string(value)
+    end
+  end
+
+  @doc "Get NS records for domain or empty list on failure"
+  @spec dns_ns_records(binary(), Keyword.t()) :: list(binary())
+  def dns_ns_records(domain, opts \\ []) do
+    case :inet_res.lookup(to_charlist(domain), :in, :ns, opts) do
+      [] ->
+        []
+
       values ->
         for [value | _rest] <- values, do: to_string(value)
     end

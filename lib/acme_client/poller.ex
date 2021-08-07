@@ -144,13 +144,19 @@ defmodule AcmeClient.Poller do
     url = args[:url]
     poll_interval = args[:poll_interval] || @poll_interval
 
+    cb_mod = args[:cb_mod]
+    {:ok, cb_context} = apply(cb_mod, :init, [args])
+
+    valid_ns = args[:valid_ns] || []
+
     state = %{
       # Basic wait time between cycles
       poll_interval: poll_interval,
       # AcmeClient session
       session: args[:session],
       # Callback module for project specific functions
-      cb_mod: args[:cb_mod],
+      cb_mod: cb_mod,
+      cb_context: cb_context,
       # Order URL
       url: url,
       # Order data
@@ -160,6 +166,7 @@ defmodule AcmeClient.Poller do
       challenge_responses: args[:challenge_responses],
       dns_records: false,
       dns_opts: args[:dns_opts] || [],
+      valid_ns: valid_ns,
     }
 
     # Put order URL in logger metadata
@@ -183,7 +190,6 @@ defmodule AcmeClient.Poller do
     # Spread out load from multiple polling processes
     Process.send_after(self(), :timeout, :rand.uniform(poll_interval))
 
-    # {:ok, state, {:continue, :spread}}
     {:ok, state}
   end
 
@@ -270,23 +276,49 @@ defmodule AcmeClient.Poller do
   def handle_info(:timeout, %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state) do
     Logger.info("#{status}, polling until DNS ready")
 
-    records_found =
+    results =
       for {_domain, responses} <- challenge_responses, response <- responses do
         %{"domain" => domain, "response" => response_code} = response
 
-        host = AcmeClient.dns_challenge_name(domain)
-        txt_records = AcmeClient.dns_txt_records(host)
+        case validate_ns(domain, state.valid_ns, 2) do
+          {_domain, :valid} ->
+            host = AcmeClient.dns_challenge_name(domain)
+            txt_records = AcmeClient.dns_txt_records(host)
 
-        if response_code in txt_records do
-          Logger.info("#{state.url}: DNS found #{host} #{response_code}")
-          true
-        else
-          Logger.info("#{state.url}: DNS not found #{host} #{response_code}")
-          false
+            if response_code in txt_records do
+              Logger.debug("DNS found #{host} #{response_code}")
+              :ok
+            else
+              Logger.debug("DNS not found #{host} #{response_code}")
+              :transient
+            end
+
+          {_domain, :invalid} ->
+            :permanent
+
+          {_domain, :missing} ->
+            :permanent
         end
       end
 
-    {:noreply, %{state | dns_records: Enum.all?(records_found)}, state.poll_interval}
+    cond do
+      Enum.any?(results, fn result -> result == :permanent end) ->
+        Logger.warning("Stopping due to invalid NS")
+        {:stop, :normal, state}
+
+      Enum.all?(results, fn result -> result == :ok end) ->
+        Logger.info("All DNS found")
+        {:noreply, %{state | dns_records: true}, 0}
+
+      true ->
+        {:noreply, state, state.poll_interval}
+    end
+
+    # if apply(state.cb_mod, :valid_domain?, [domain, state.cb_context]) do
+    # else
+    #   Logger.warning("Stopping invalid #{state.url}: domain is invalid")
+    #  {:stop, :normal, state}
+    # end
   end
 
   def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state) do
@@ -743,11 +775,31 @@ defmodule AcmeClient.Poller do
         {:noreply, %{state | session: nil}, state.poll_interval}
     end
   end
+
+  @spec validate_ns(binary(), list(binary), non_neg_integer()) ::
+        {domain :: binary(), :valid | :invalid | :missing}
+  def validate_ns(domain, valid_ns, tries)
+
+  def validate_ns(domain, _valid_ns, 0) do
+    {domain, :missing}
+  end
+
+  def validate_ns(domain, valid_ns, tries) do
+    case :inet_res.lookup(to_charlist(domain), :in, :ns) do
+      [] ->
+        # Logger.info("#{domain} nameservers missing")
+        validate_ns(domain, valid_ns, tries - 1)
+
+      values ->
+        ns = Enum.map(values, &to_string/1)
+
+        if Enum.all?(ns, &(&1 in valid_ns)) do
+          # Logger.debug("#{domain} nameservers valid: #{inspect(nameservers)}")
+          {domain, :valid}
+        else
+          # Logger.warning("#{domain} nameservers invalid: #{inspect(nameservers)}")
+          {domain, :invalid}
+        end
+    end
+  end
 end
-    # case get_order_status(state) do
-    #   {:ok, session, order} ->
-    #     set_logger_metadata(order)
-    #
-    #   other ->
-    #     other
-    # end
