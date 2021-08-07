@@ -51,19 +51,6 @@ defmodule AcmeClient do
   # @rate_limit_limit 5
   @rate_limit_limit 10
 
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> AcmeClient.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
-
   @doc ~S"""
   Create new session connecting to ACME server."
 
