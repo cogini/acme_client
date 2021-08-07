@@ -414,23 +414,23 @@ defmodule AcmeClient.Poller do
              case apply(state.cb_mod, :process_certificate, [order, certificate]) do
                :ok ->
                  apply(state.cb_mod, :ack_order, [order])
- 
+
                  Logger.warning("Stopping valid #{state.url}")
                  {:stop, :normal, state}
- 
+
                err ->
                  Logger.error("Error running process_certificate: #{inspect(err)}")
                  {:noreply, %{state | session: session, order: order}, state.poll_interval}
              end
- 
+
            {:error, session, :throttled} ->
              Logger.warning("HTTP rate limited throttled")
              {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
- 
+
            {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
              Logger.warning("HTTP rate limited /acme")
              {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
- 
+
            err ->
              Logger.error("Error reading certificate: #{inspect(err)}")
              {:noreply, %{state | session: nil, order: order}, state.poll_interval}
@@ -460,6 +460,11 @@ defmodule AcmeClient.Poller do
       other ->
         other
     end
+  end
+
+  def handle_info(message, state) do
+    Logger.warning("Unexpected message #{inspect(message)}")
+    {:noreply, state}
   end
 
   @doc "Read contents of authorization URLs"
