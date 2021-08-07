@@ -371,6 +371,27 @@ defmodule AcmeClient.Poller do
               Logger.warning("Already finalized")
               {:noreply, %{state | session: nil, order: order}, 0}
 
+            # %{
+            #   "detail" =>
+            #     "Error finalizing order :: Rechecking CAA for \"*.example.com\" and 1 more identifiers failed. Refer to sub-problems for more information",
+            #   "status" => 403,
+            #   "subproblems" => [
+            #     %{
+            #       "detail" =>
+            #         "Error finalizing order :: While processing CAA for *.example.com: DNS problem: query timed out looking up CAA for example.com",
+            #       "identifier" => %{"type" => "dns", "value" => "*.example.com"},
+            #       "status" => 403,
+            #       "type" => "urn:ietf:params:acme:error:caa"
+            #     },
+            #     %{
+            #       "detail" =>
+            #       "Error finalizing order :: While processing CAA for example.com: DNS problem: query timed out looking up CAA for example.com",
+            #       "identifier" => %{"type" => "dns", "value" => "example.com"},
+            #       "status" => 403,
+            #       "type" => "urn:ietf:params:acme:error:caa"}
+            #   ],
+            #   "type" => "urn:ietf:params:acme:error:caa"
+            # }
             {:error, reason}
               Logger.error("Error finalizing: #{inspect(reason)}")
               {:noreply, %{state | session: nil, order: order}, state.poll_interval}
