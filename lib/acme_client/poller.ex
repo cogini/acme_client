@@ -301,6 +301,8 @@ defmodule AcmeClient.Poller do
         end
       end
 
+    Logger.debug("results: #{inspect(results)}")
+
     cond do
       Enum.any?(results, fn result -> result == :permanent end) ->
         Logger.warning("Stopping due to invalid NS")
@@ -308,7 +310,9 @@ defmodule AcmeClient.Poller do
 
       Enum.all?(results, fn result -> result == :ok end) ->
         Logger.info("All DNS found")
-        {:noreply, %{state | dns_records: true}, 0}
+        # The session is generally invalid by the time the DNS records are
+        # available, so trigger a refresh rather than getting an error
+        {:noreply, %{state | dns_records: true, session: nil}, 0}
 
       true ->
         {:noreply, state, state.poll_interval}
