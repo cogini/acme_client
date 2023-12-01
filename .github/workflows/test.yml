@@ -77,8 +77,8 @@ jobs:
         run: mix test
 
       - name: Run credo
-        # run: mix credo --mute-exit-status
-        run: mix credo
+        run: mix credo --mute-exit-status
+        # run: mix credo
 
       - name: Run hex.audit
         run: mix hex.audit
