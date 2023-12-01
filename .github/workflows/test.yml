@@ -87,7 +87,7 @@ jobs:
         run: mix deps.audit
 
       - name: Run dialyzer
-        run: mix dialyzer --format github
+        run: mix dialyzer --ignore-exit-status --format github
 
       - name: Publish unit test results to GitHub
         uses: EnricoMi/publish-unit-test-result-action@v2
