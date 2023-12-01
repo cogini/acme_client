@@ -150,6 +150,7 @@ defmodule AcmeClient.Poller do
     valid_ns = args[:valid_ns] || []
 
     state = %{
+      # parent: args[:parent],
       # Basic wait time between cycles
       poll_interval: poll_interval,
       # AcmeClient session
@@ -192,6 +193,12 @@ defmodule AcmeClient.Poller do
 
     {:ok, state}
   end
+
+  # @impl true
+  # def terminate(reason, state) do
+  #   Logger.debug("reason: #{reason}")
+  #   Process.send(state.parent, :done, [])
+  # end
 
   # def handle_continue(:spread, state) do
   #   # Spread out load from multiple polling processes
