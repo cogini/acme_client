@@ -609,8 +609,8 @@ defmodule AcmeClient do
 
         {:ok, session, authorizations}
 
-      err ->
-        err
+        # err ->
+        #   err
     end
   end
 
