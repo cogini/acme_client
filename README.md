@@ -1,3 +1,6 @@
+![test workflow](https://github.com/cogini/acme_client/actions/workflows/test.yml/badge.svg)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+
 # acme_client
 
 Elixir client for the ACME certificate management protocol
