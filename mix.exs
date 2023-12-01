@@ -13,7 +13,7 @@ defmodule AcmeClient.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       dialyzer: [
-        plt_add_apps: [:public_key]
+        plt_add_apps: [:public_key, :mix, :ex_unit]
         # plt_add_deps: true,
         # flags: ["-Werror_handling", "-Wrace_conditions"],
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
