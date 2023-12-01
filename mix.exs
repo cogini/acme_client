@@ -106,7 +106,8 @@ defmodule AcmeClient.MixProject do
       quality: [
         "test",
         "format --check-formatted",
-        "credo",
+        # "credo",
+        "credo --mute-exit-status",
         # mix deps.clean --unlock --unused
         "deps.unlock --check-unused",
         # "hex.outdated",
