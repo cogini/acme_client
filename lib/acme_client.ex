@@ -656,7 +656,7 @@ defmodule AcmeClient do
 
   ## Examples
 
-      iex> client = AcmeClient.create_client()
+      iex> _client = AcmeClient.create_client()
       %Tesla.Client{
         adapter: nil,
         fun: nil,
