@@ -62,6 +62,7 @@ defmodule AcmeClient.MixProject do
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
       {:hackney, "~> 1.17", only: [:dev, :test]},
       {:jason, "~> 1.0"},
+      {:junit_formatter, "~> 3.3", only: [:dev, :test], runtime: false},
       {:styler, "~> 0.9.6", only: [:dev, :test], runtime: false},
       {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
