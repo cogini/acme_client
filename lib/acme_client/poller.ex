@@ -118,7 +118,6 @@ defmodule AcmeClient.Poller do
       V                   V
      valid              invalid
 
-
   """
   use GenServer, restart: :temporary
 

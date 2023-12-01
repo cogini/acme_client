@@ -210,7 +210,7 @@ defmodule AcmeClient do
 
   This reads a URL from the server. Instead of using GET, it uses POST so that the
   request has the proper signing and nonce.
-  #
+
   ## Examples
     {:ok, session, response} = AcmeClient.post_as_get(session, "https://acme-staging-v02.api.letsencrypt.org/acme/acct/123")
   """
