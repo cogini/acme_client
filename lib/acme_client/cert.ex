@@ -1,4 +1,5 @@
 defmodule AcmeClient.Cert do
+  @moduledoc false
   require Logger
 
   @doc ~S"""
@@ -27,8 +28,7 @@ defmodule AcmeClient.Cert do
   @spec new_csr([binary()], X509.PrivateKey.t()) :: X509.CSR.t()
   def new_csr(domains, private_key, opts \\ []) do
     subject = opts[:subject] || {:rdnSequence, []}
-    X509.CSR.new(private_key, subject,
-      extension_request: [X509.Certificate.Extension.subject_alt_name(domains)])
+    X509.CSR.new(private_key, subject, extension_request: [X509.Certificate.Extension.subject_alt_name(domains)])
     # X509.CSR.to_der(csr)
   end
 
@@ -39,5 +39,4 @@ defmodule AcmeClient.Cert do
       pem -> pem <> "\n"
     end
   end
-
 end

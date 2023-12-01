@@ -120,13 +120,15 @@ defmodule AcmeClient.Poller do
 
 
   """
+  use GenServer, restart: :temporary
+
+  alias AcmeClient.Session
+
+  require Logger
+
   @rate_limit_times 3
   @poll_interval 60_000
 
-  use GenServer, restart: :temporary
-
-  require Logger
-  alias AcmeClient.Session
   # alias AcmeClient.Telemetry
 
   def start_link(args, opts \\ []) do
@@ -167,7 +169,7 @@ defmodule AcmeClient.Poller do
       challenge_responses: args[:challenge_responses],
       dns_records: false,
       dns_opts: args[:dns_opts] || [],
-      valid_ns: valid_ns,
+      valid_ns: valid_ns
     }
 
     # Put order URL in logger metadata
@@ -280,7 +282,10 @@ defmodule AcmeClient.Poller do
     end
   end
 
-  def handle_info(:timeout, %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state) do
+  def handle_info(
+        :timeout,
+        %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state
+      ) do
     Logger.info("#{status}, polling until DNS ready")
 
     results =
@@ -323,13 +328,13 @@ defmodule AcmeClient.Poller do
 
       true ->
         {:noreply, state, state.poll_interval}
-    end
 
-    # if apply(state.cb_mod, :valid_domain?, [domain, state.cb_context]) do
-    # else
-    #   Logger.warning("Stopping invalid #{state.url}: domain is invalid")
-    #  {:stop, :normal, state}
-    # end
+        # if apply(state.cb_mod, :valid_domain?, [domain, state.cb_context]) do
+        # else
+        #   Logger.warning("Stopping invalid #{state.url}: domain is invalid")
+        #  {:stop, :normal, state}
+        # end
+    end
   end
 
   def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state) do
@@ -388,8 +393,7 @@ defmodule AcmeClient.Poller do
         with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
              {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
              {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
-             {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})}
-        do
+             {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})} do
           case AcmeClient.post_as_get(session, finalize_url, json) do
             {:ok, session, %{status: 200}} ->
               Logger.debug("CSR: #{json}")
@@ -408,34 +412,40 @@ defmodule AcmeClient.Poller do
               Logger.error("Error finalizing: #{inspect(reason)}")
               {:noreply, %{state | session: session, order: order}, state.poll_interval}
 
-            {:error, %{status: 403, body: %{"type" => "urn:ietf:params:acme:error:orderNotReady",
-              # "detail" => "Order's status (\"valid\") is not acceptable for finalization"
-              }}}
+              {:error,
+               %{
+                 status: 403,
+                 body: %{
+                   "type" => "urn:ietf:params:acme:error:orderNotReady"
+                   # "detail" => "Order's status (\"valid\") is not acceptable for finalization"
+                 }
+               }}
+
               Logger.warning("Already finalized")
               {:noreply, %{state | session: nil, order: order}, 0}
 
-            # %{
-            #   "detail" =>
-            #     "Error finalizing order :: Rechecking CAA for \"*.example.com\" and 1 more identifiers failed. Refer to sub-problems for more information",
-            #   "status" => 403,
-            #   "subproblems" => [
-            #     %{
-            #       "detail" =>
-            #         "Error finalizing order :: While processing CAA for *.example.com: DNS problem: query timed out looking up CAA for example.com",
-            #       "identifier" => %{"type" => "dns", "value" => "*.example.com"},
-            #       "status" => 403,
-            #       "type" => "urn:ietf:params:acme:error:caa"
-            #     },
-            #     %{
-            #       "detail" =>
-            #       "Error finalizing order :: While processing CAA for example.com: DNS problem: query timed out looking up CAA for example.com",
-            #       "identifier" => %{"type" => "dns", "value" => "example.com"},
-            #       "status" => 403,
-            #       "type" => "urn:ietf:params:acme:error:caa"}
-            #   ],
-            #   "type" => "urn:ietf:params:acme:error:caa"
-            # }
-            {:error, reason}
+              # %{
+              #   "detail" =>
+              #     "Error finalizing order :: Rechecking CAA for \"*.example.com\" and 1 more identifiers failed. Refer to sub-problems for more information",
+              #   "status" => 403,
+              #   "subproblems" => [
+              #     %{
+              #       "detail" =>
+              #         "Error finalizing order :: While processing CAA for *.example.com: DNS problem: query timed out looking up CAA for example.com",
+              #       "identifier" => %{"type" => "dns", "value" => "*.example.com"},
+              #       "status" => 403,
+              #       "type" => "urn:ietf:params:acme:error:caa"
+              #     },
+              #     %{
+              #       "detail" =>
+              #       "Error finalizing order :: While processing CAA for example.com: DNS problem: query timed out looking up CAA for example.com",
+              #       "identifier" => %{"type" => "dns", "value" => "example.com"},
+              #       "status" => 403,
+              #       "type" => "urn:ietf:params:acme:error:caa"}
+              #   ],
+              #   "type" => "urn:ietf:params:acme:error:caa"
+              # }
+              {:error, reason}
               Logger.error("Error finalizing: #{inspect(reason)}")
               {:noreply, %{state | session: nil, order: order}, state.poll_interval}
           end
@@ -446,6 +456,7 @@ defmodule AcmeClient.Poller do
 
             {:noreply, %{state | session: nil, order: order}, state.poll_interval}
         end
+
       other ->
         other
     end
@@ -459,6 +470,7 @@ defmodule AcmeClient.Poller do
         set_logger_metadata(order)
 
         {:noreply, %{state | session: session, order: order}, state.poll_interval}
+
       other ->
         other
     end
@@ -471,34 +483,34 @@ defmodule AcmeClient.Poller do
       {:ok, session, order} ->
         set_logger_metadata(order)
 
-         case AcmeClient.get_object(session, order["certificate"]) do
-           {:ok, session, certificate} ->
-             Logger.info("certificate: #{certificate}")
+        case AcmeClient.get_object(session, order["certificate"]) do
+          {:ok, session, certificate} ->
+            Logger.info("certificate: #{certificate}")
 
-             case apply(state.cb_mod, :process_certificate, [order, certificate]) do
-               :ok ->
-                 apply(state.cb_mod, :ack_order, [order])
+            case apply(state.cb_mod, :process_certificate, [order, certificate]) do
+              :ok ->
+                apply(state.cb_mod, :ack_order, [order])
 
-                 Logger.warning("Stopping valid #{state.url}")
-                 {:stop, :normal, state}
+                Logger.warning("Stopping valid #{state.url}")
+                {:stop, :normal, state}
 
-               err ->
-                 Logger.error("Error running process_certificate: #{inspect(err)}")
-                 {:noreply, %{state | session: session, order: order}, state.poll_interval}
-             end
+              err ->
+                Logger.error("Error running process_certificate: #{inspect(err)}")
+                {:noreply, %{state | session: session, order: order}, state.poll_interval}
+            end
 
-           {:error, session, :throttled} ->
-             Logger.warning("HTTP rate limited throttled")
-             {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
+          {:error, session, :throttled} ->
+            Logger.warning("HTTP rate limited throttled")
+            {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
 
-           {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
-             Logger.warning("HTTP rate limited /acme")
-             {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
+          {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+            Logger.warning("HTTP rate limited /acme")
+            {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
 
-           err ->
-             Logger.error("Error reading certificate: #{inspect(err)}")
-             {:noreply, %{state | session: nil, order: order}, state.poll_interval}
-         end
+          err ->
+            Logger.error("Error reading certificate: #{inspect(err)}")
+            {:noreply, %{state | session: nil, order: order}, state.poll_interval}
+        end
 
       other ->
         other
@@ -532,33 +544,35 @@ defmodule AcmeClient.Poller do
   end
 
   @doc "Read contents of authorization URLs"
-  @spec get_authorizations(Session.t(), [binary()]) :: {:ok, Session.t(), list({binary(), map()})}
-                                                     | {:error, term()}
+  @spec get_authorizations(Session.t(), [binary()]) ::
+          {:ok, Session.t(), list({binary(), map()})}
+          | {:error, term()}
   def get_authorizations(session, urls) do
     Logger.debug("authorizations: #{inspect(urls)}")
+
     {session, results} =
-      Enum.reduce(urls, {session, []},
-        fn
-          _url, {nil, results} ->
-            {nil, results}
+      Enum.reduce(urls, {session, []}, fn
+        _url, {nil, results} ->
+          {nil, results}
 
-          url, {session, results} ->
-            Logger.debug("Getting authorization #{url}")
-            case AcmeClient.post_as_get(session, url) do
-              {:ok, session, result} ->
-                {session, [{url, result.body} | results]}
+        url, {session, results} ->
+          Logger.debug("Getting authorization #{url}")
 
-              {:error, _session, reason} ->
-                {nil, [{url, {:error, reason}} | results]}
+          case AcmeClient.post_as_get(session, url) do
+            {:ok, session, result} ->
+              {session, [{url, result.body} | results]}
+
+            {:error, _session, reason} ->
+              {nil, [{url, {:error, reason}} | results]}
 
               {:error, reason}
-                {nil, [{url, {:error, reason}} | results]}
-            end
-        end)
+              {nil, [{url, {:error, reason}} | results]}
+          end
+      end)
 
     case {session, results} do
       {nil, [{_url, error} | _rest]} ->
-          error
+        error
 
       {session, results} ->
         {:ok, session, results}
@@ -592,7 +606,8 @@ defmodule AcmeClient.Poller do
           Logger.warning("#{domain} Invalid challenge")
           acc
 
-        %{"status" => "processing", "type" => "dns-01"}, acc -> acc
+        %{"status" => "processing", "type" => "dns-01"}, acc ->
+          acc
 
         %{"status" => "pending", "type" => "dns-01"} = challenge, {session, challenges} ->
           %{"token" => token, "url" => url} = challenge
@@ -605,6 +620,7 @@ defmodule AcmeClient.Poller do
 
           if response in txt_records do
             Logger.info("#{domain}: DNS challenge response found for #{host} #{response}")
+
             case AcmeClient.poke_url(session, url) do
               {:ok, session, poke_result} ->
                 Logger.info("#{domain}: poked #{url}: #{inspect(poke_result)}")
@@ -614,16 +630,17 @@ defmodule AcmeClient.Poller do
                 Logger.error("#{domain}: Error poking #{url}: #{inspect(reason)}")
                 {session, [challenge | challenges]}
             end
-
           else
             Logger.info("#{domain}: DNS challenge response not found for #{host} #{response}")
             {session, [challenge | challenges]}
           end
-        _, acc -> acc
+
+        _, acc ->
+          acc
       end
 
     {session, challenges} =
-        Enum.reduce(authorization["challenges"], {session, []}, process_challenge)
+      Enum.reduce(authorization["challenges"], {session, []}, process_challenge)
 
     authorization = Map.put(authorization, "challenges", challenges)
     {session, [authorization | results]}
@@ -674,10 +691,10 @@ defmodule AcmeClient.Poller do
   @spec create_challenge_responses(map(), JOSE.JWK.t()) :: list(map())
   def create_challenge_responses(authorization, key) do
     %{"identifier" => %{"type" => "dns", "value" => domain}} = authorization
+
     for challenge <- authorization["challenges"],
-      # challenge["status"] in ["pending", "valid"],
-      challenge["type"] == "dns-01"
-    do
+        # challenge["status"] in ["pending", "valid"],
+        challenge["type"] == "dns-01" do
       response = AcmeClient.dns_challenge_response(challenge["token"], key)
 
       challenge
@@ -734,10 +751,10 @@ defmodule AcmeClient.Poller do
 
   def get_domain(identifiers) do
     [domain | _rest] =
-      for %{"type" => type, "value" => value} <- identifiers,
-        type == "dns", not String.starts_with?(value, "*.") do
-          value
+      for %{"type" => type, "value" => value} <- identifiers, type == "dns", not String.starts_with?(value, "*.") do
+        value
       end
+
     domain
   end
 
@@ -745,6 +762,7 @@ defmodule AcmeClient.Poller do
 
   def set_logger_metadata(order) do
     metadata = Logger.metadata()
+
     if not Keyword.has_key?(metadata, :id) do
       id = get_id(order["identifiers"])
       Logger.metadata(Keyword.put(metadata, :id, id))
@@ -757,7 +775,6 @@ defmodule AcmeClient.Poller do
 
     case AcmeClient.get_object(session, url) do
       {:ok, session, order} ->
-
         set_logger_metadata(order)
 
         case order_status_to_state(order) do
@@ -788,7 +805,7 @@ defmodule AcmeClient.Poller do
   end
 
   @spec validate_ns(binary(), list(binary), non_neg_integer()) ::
-        {domain :: binary(), :valid | :invalid | :missing}
+          {domain :: binary(), :valid | :invalid | :missing}
   def validate_ns(domain, valid_ns, tries)
 
   def validate_ns(domain, _valid_ns, 0) do

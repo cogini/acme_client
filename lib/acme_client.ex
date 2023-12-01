@@ -32,8 +32,10 @@ defmodule AcmeClient do
     | certificate       | certificate url                |              |
     +-------------------+--------------------------------+--------------+
   """
-  require Logger
   alias AcmeClient.Session
+
+  require Logger
+
   @app :acme_client
 
   @type code :: non_neg_integer()
@@ -89,11 +91,14 @@ defmodule AcmeClient do
       end
 
     middleware_opts = opts[:middleware] || []
-    middleware = middleware_opts ++ [
-      {Tesla.Middleware.JSON, decode_content_types: ["application/problem+json"]},
-      # engine: Jason, engine_opts: [keys: :atoms]
-      {Tesla.Middleware.Logger, debug_opts},
-    ]
+
+    middleware =
+      middleware_opts ++
+        [
+          {Tesla.Middleware.JSON, decode_content_types: ["application/problem+json"]},
+          # engine: Jason, engine_opts: [keys: :atoms]
+          {Tesla.Middleware.Logger, debug_opts}
+        ]
 
     adapter = opts[:adapter]
 
@@ -105,13 +110,14 @@ defmodule AcmeClient do
       directory: opts[:directory],
       rate_limit_id: opts[:rate_limit_id],
       rate_limit_scale: opts[:rate_limit_scale],
-      rate_limit_limit: opts[:rate_limit_limit],
+      rate_limit_limit: opts[:rate_limit_limit]
     }
 
     if session.directory do
       {:ok, %{session | client: client}}
     else
       directory_url = opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
+
       case Tesla.request(client, method: :get, url: directory_url) do
         {:ok, %{status: 200, body: body}} ->
           {:ok, %{session | directory: body, client: client}}
@@ -131,6 +137,7 @@ defmodule AcmeClient do
     case ExRated.check_rate("nonce", 1000, 20) do
       {:ok, _count} ->
         url = session.directory["newNonce"]
+
         case Tesla.request(session.client, method: :head, url: url) do
           {:ok, %{status: 200, headers: headers}} ->
             {:ok, set_nonce(session, headers)}
@@ -141,6 +148,7 @@ defmodule AcmeClient do
           {:error, reason} ->
             {:error, reason}
         end
+
       {:error, _limit} ->
         {:error, session, :throttled}
     end
@@ -179,18 +187,16 @@ defmodule AcmeClient do
       account_key: key,
       rate_limit_id: opts[:rate_limit_id] || Application.get_env(@app, :rate_limit_id, @rate_limit_id),
       rate_limit_scale: opts[:rate_limit_scale] || Application.get_env(@app, :rate_limit_scale, @rate_limit_scale),
-      rate_limit_limit: opts[:rate_limit_limit] || Application.get_env(@app, :rate_limit_limit, @rate_limit_limit),
+      rate_limit_limit: opts[:rate_limit_limit] || Application.get_env(@app, :rate_limit_limit, @rate_limit_limit)
     ]
 
     with {:ok, session} <- new_session(session_opts),
-         {:ok, session} <- new_nonce(session)
-    do
+         {:ok, session} <- new_nonce(session) do
       {:ok, session}
     else
       err -> err
     end
   end
-
 
   @doc ~S"""
   Perform POST-as-GET HTTP call.
@@ -236,6 +242,7 @@ defmodule AcmeClient do
     case post_as_get(session, url) do
       {:ok, session, result} ->
         {:ok, session, result.body}
+
       error ->
         error
     end
@@ -255,34 +262,33 @@ defmodule AcmeClient do
   @spec get_authorizations(Session.t(), list(binary())) :: {:ok, Session.t(), list(map())}
   def get_authorizations(session, urls) do
     {session, results} =
-      Enum.reduce(urls, {session, []},
-        fn url, {session, acc} ->
-          case AcmeClient.post_as_get(session, url) do
-            {:ok, session, result} ->
-              {session, [result.body | acc]}
+      Enum.reduce(urls, {session, []}, fn url, {session, acc} ->
+        case AcmeClient.post_as_get(session, url) do
+          {:ok, session, result} ->
+            {session, [result.body | acc]}
 
-            {:error, session, reason} ->
-              Logger.error("Error reading #{url}: #{inspect(reason)}")
-              {session, acc}
+          {:error, session, reason} ->
+            Logger.error("Error reading #{url}: #{inspect(reason)}")
+            {session, acc}
 
-            {:error, reason} ->
-              Logger.error("Error reading #{url}: #{inspect(reason)}")
-              {session, acc}
-          end
-        end)
+          {:error, reason} ->
+            Logger.error("Error reading #{url}: #{inspect(reason)}")
+            {session, acc}
+        end
+      end)
+
     {:ok, session, Enum.reverse(results)}
   end
-
 
   @doc "Get a list of URLs with post_as_get"
   @spec get_urls(Session.t(), list(binary())) :: {:ok, Session.t(), term()}
   def get_urls(session, urls) do
     {session, results} =
-      Enum.reduce(urls, {session, []},
-        fn url, {session, acc} ->
-          {:ok, session, result} = AcmeClient.post_as_get(session, url)
-          {session, [{url, result.body} | acc]}
-        end)
+      Enum.reduce(urls, {session, []}, fn url, {session, acc} ->
+        {:ok, session, result} = AcmeClient.post_as_get(session, url)
+        {session, [{url, result.body} | acc]}
+      end)
+
     {:ok, session, Enum.reverse(results)}
   end
 
@@ -292,7 +298,9 @@ defmodule AcmeClient do
     case post_as_get(session, url) do
       {:ok, session, result} ->
         {:ok, session, result.body["status"]}
-      error -> error
+
+      error ->
+        error
     end
   end
 
@@ -301,8 +309,6 @@ defmodule AcmeClient do
   def poke_url(session, url) do
     post_as_get(session, url, "{}")
   end
-
-
 
   @doc ~S"""
   Generate JWS cryptographic key for account.
@@ -341,9 +347,10 @@ defmodule AcmeClient do
     {:ok, session} = new_nonce(session)
     {:ok, session, account} = AcmeClient.create_account(opts)
   """
-  @spec new_account(Session.t(), Keyword.t()) :: {:ok, Session.t(), map()}
-                                                | {:error, Session.t(), Tesla.Env.result()}
-                                                | {:error, term()}
+  @spec new_account(Session.t(), Keyword.t()) ::
+          {:ok, Session.t(), map()}
+          | {:error, Session.t(), Tesla.Env.result()}
+          | {:error, term()}
   def new_account(session, opts) do
     %{client: client, account_key: account_key, nonce: nonce} = session
     url = session.directory["newAccount"]
@@ -356,20 +363,19 @@ defmodule AcmeClient do
         {:terms_of_service_agreed, true} -> {"termsOfServiceAgreed", true}
         {:only_return_existing, true} -> {"onlyReturnExisting", true}
         {:external_account_binding, value} -> {"externalAccountBinding", value}
-    end
+      end
 
     opts_keys = [
       :contact,
       :terms_of_service_agreed,
       :only_return_existing,
-      :external_account_binding,
+      :external_account_binding
     ]
 
     payload =
       opts
       |> Keyword.take(opts_keys)
-      |> Enum.map(map_opts)
-      |> Enum.into(%{})
+      |> Map.new(map_opts)
       |> Jason.encode!()
 
     protected = %{"alg" => "ES256", "nonce" => nonce, "url" => url, jwk: to_jwk(account_key)}
@@ -379,13 +385,17 @@ defmodule AcmeClient do
       # returns 201 on initial create, 200 if called again
       {:ok, %{status: status, headers: headers} = result} when status in [201, 200] ->
         session = set_nonce(session, headers)
+
         value = %{
           object: result.body,
           url: :proplists.get_value("location", headers, nil)
         }
+
         {:ok, session, value}
+
       {:ok, %{headers: headers} = result} ->
         {:error, set_nonce(session, headers), result}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -408,7 +418,6 @@ defmodule AcmeClient do
     "/.well-known/acme-challenge/" <> token
   end
 
-
   @doc ~S"""
   Create key authorization from token and key.
 
@@ -418,7 +427,6 @@ defmodule AcmeClient do
   def key_authorization(token, key) do
     token <> "." <> key_thumbprint(key)
   end
-
 
   @doc ~S"""
   Generate RFC7638 thumbprint of key.
@@ -436,7 +444,6 @@ defmodule AcmeClient do
     |> JOSE.JWK.thumbprint()
   end
 
-
   @doc ~S"""
   Generate DNS challenge response.
 
@@ -448,16 +455,18 @@ defmodule AcmeClient do
   def dns_challenge_response(token, key) do
     token
     |> key_authorization(key)
-    |> (&(:crypto.hash(:sha256, &1))).()
+    |> then(&:crypto.hash(:sha256, &1))
     |> Base.url_encode64(padding: false)
   end
 
   def dns_challenge_name(%{"type" => "dns", "value" => domain}) do
     "_acme-challenge." <> domain
   end
+
   def dns_challenge_name("*." <> domain) do
     "_acme-challenge." <> domain
   end
+
   def dns_challenge_name(domain) when is_binary(domain) do
     "_acme-challenge." <> domain
   end
@@ -466,6 +475,7 @@ defmodule AcmeClient do
   def dns_validate(authorization, opts \\ []) do
     %{"identifier" => identifier} = authorization
     host = dns_challenge_name(identifier)
+
     case :inet_res.lookup(to_charlist(host), :in, :txt, opts) do
       [] ->
         authorization
@@ -536,21 +546,24 @@ defmodule AcmeClient do
       fn
         {:identifiers, value} when is_binary(value) ->
           {:identifiers, [%{type: "dns", value: value}]}
+
         {:identifiers, value} when is_map(value) ->
           {:identifiers, [value]}
+
         {:identifiers, values} when is_list(values) ->
           {:identifiers, Enum.map(values, map_identifier)}
+
         {:not_before, value} when is_binary(value) ->
           {"notBefore", value}
+
         {:not_after, value} when is_binary(value) ->
           {"notAfter", value}
-    end
+      end
 
     payload =
       opts
       |> Keyword.take([:identifiers, :not_before, :not_after])
-      |> Enum.map(map_opts)
-      |> Enum.into(%{})
+      |> Map.new(map_opts)
       |> Jason.encode!()
 
     protected = %{"alg" => "ES256", "kid" => kid, "nonce" => nonce, "url" => url}
@@ -561,13 +574,17 @@ defmodule AcmeClient do
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
       {:ok, %{status: status, headers: headers} = result} when status in [201, 200] ->
         session = set_nonce(session, headers)
+
         value = %{
           object: result.body,
           url: :proplists.get_value("location", headers, nil)
         }
+
         {:ok, session, value}
+
       {:ok, %{headers: headers} = result} ->
         {:error, set_nonce(session, headers), result}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -582,15 +599,18 @@ defmodule AcmeClient do
   @spec create_challenge_responses(Session.t(), map()) :: {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
   def create_challenge_responses(session, order) do
     key = session.account_key
-    with {:ok, session, authorizations} <- AcmeClient.get_urls(session, order["authorizations"])
-    do
-      authorizations =
-        for {url, authorization} <- authorizations do
-          {url, create_authorization_response(authorization, key)}
-        end
-      {:ok, session, authorizations}
-    else
-      err -> err
+
+    case AcmeClient.get_urls(session, order["authorizations"]) do
+      {:ok, session, authorizations} ->
+        authorizations =
+          for {url, authorization} <- authorizations do
+            {url, create_authorization_response(authorization, key)}
+          end
+
+        {:ok, session, authorizations}
+
+      err ->
+        err
     end
   end
 
@@ -601,6 +621,7 @@ defmodule AcmeClient do
       for challenge <- authorization["challenges"] do
         challenge_add_response(challenge, key)
       end
+
     Map.put(authorization, "challenges", challenges)
   end
 
@@ -614,13 +635,11 @@ defmodule AcmeClient do
 
   def challenge_add_response(challenge, _key), do: challenge
 
-
   # Convenience function
   @spec create_order(Session.t(), Keyword.t()) :: request_ret()
   def create_order(session, opts) do
     with {:ok, session, order} <- AcmeClient.new_order(session, opts),
-         {:ok, session, authorizations} <- AcmeClient.create_challenge_responses(session, order.object)
-    do
+         {:ok, session, authorizations} <- AcmeClient.create_challenge_responses(session, order.object) do
       {:ok, session, {order, authorizations}}
     else
       err -> err
@@ -674,10 +693,13 @@ defmodule AcmeClient do
     adapter = opts[:adapter]
 
     opts_middleware = opts[:middleware] || []
-    middleware = opts_middleware ++ [
-      {Tesla.Middleware.BaseUrl, base_url},
-      Tesla.Middleware.JSON,
-    ]
+
+    middleware =
+      opts_middleware ++
+        [
+          {Tesla.Middleware.BaseUrl, base_url},
+          Tesla.Middleware.JSON
+        ]
 
     Tesla.client(middleware, adapter)
   end
@@ -686,7 +708,6 @@ defmodule AcmeClient do
   def get_directory(client) do
     do_get(client, "/directory")
   end
-
 
   # Internal utility functions
 
@@ -724,7 +745,6 @@ defmodule AcmeClient do
     JOSE.JWK.from_binary(bin)
   end
 
-
   @spec do_get(Tesla.Client.t(), binary()) :: {:ok, map()} | {:error, map()}
   def do_get(client, url) do
     tesla_response(Tesla.get(client, url))
@@ -738,8 +758,9 @@ defmodule AcmeClient do
   def request(client, session, options \\ []) do
     default_options = [
       method: :post,
-      status: 200,
+      status: 200
     ]
+
     options = Keyword.merge(default_options, options)
     {status, options} = Keyword.pop(options, :status)
 
@@ -751,13 +772,14 @@ defmodule AcmeClient do
     case Tesla.request(client, options) do
       {:ok, %{status: ^status, headers: headers} = result} ->
         {:ok, set_nonce(session, headers), result}
+
       {:ok, %{headers: headers} = result} ->
         {:error, set_nonce(session, headers), result}
+
       {:error, reason} ->
         {:error, reason}
     end
   end
-
 
   # https://letsencrypt.org/docs/rate-limits/
   # 300 New Orders per account per 3 hours
