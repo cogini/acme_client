@@ -13,7 +13,7 @@ defmodule AcmeClient.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       dialyzer: [
-        plt_add_apps: [:public_key],
+        plt_add_apps: [:public_key]
         # plt_add_deps: true,
         # flags: ["-Werror_handling", "-Wrace_conditions"],
         # flags: ["-Wunmatched_returns", :error_handling, :race_conditions, :underspecs],
@@ -45,13 +45,12 @@ defmodule AcmeClient.MixProject do
   end
 
   defp extra_applications(:test), do: [:hackney]
-  defp extra_applications(_),     do: []
+  defp extra_applications(_), do: []
 
   defp elixirc_paths(:dev), do: ["lib", "test/support"]
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
       {:castore, "~> 1.0"},
@@ -63,9 +62,10 @@ defmodule AcmeClient.MixProject do
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
       {:hackney, "~> 1.17", only: [:dev, :test]},
       {:jason, "~> 1.0"},
+      {:styler, "~> 0.9.6", only: [:dev, :test], runtime: false},
       {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
-      {:x509, "~> 0.8.2"},
+      {:x509, "~> 0.8.2"}
     ]
   end
 
@@ -80,9 +80,7 @@ defmodule AcmeClient.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @github,
-        "Changelog" => "#{@github}/blob/#{@version}/CHANGELOG.md##{
-          String.replace(@version, ".", "")
-        }"
+        "Changelog" => "#{@github}/blob/#{@version}/CHANGELOG.md##{String.replace(@version, ".", "")}"
       }
     ]
   end
@@ -94,7 +92,7 @@ defmodule AcmeClient.MixProject do
       source_ref: @version,
       extras: [
         "README.md",
-        "CHANGELOG.md": [title: "Changelog"],
+        "CHANGELOG.md": [title: "Changelog"]
       ],
       # api_reference: false,
       source_url_pattern: "#{@github}/blob/master/%{path}#L%{line}"
