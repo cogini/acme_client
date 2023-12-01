@@ -284,7 +284,8 @@ defmodule AcmeClient.Poller do
 
   def handle_info(
         :timeout,
-        %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} = state
+        %{status: :pending = status, challenge_responses: challenge_responses, dns_records: false} =
+          state
       ) do
     Logger.info("#{status}, polling until DNS ready")
 
@@ -337,7 +338,10 @@ defmodule AcmeClient.Poller do
     end
   end
 
-  def handle_info(:timeout, %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state) do
+  def handle_info(
+        :timeout,
+        %{status: :pending, challenge_responses: challenge_responses, dns_records: true} = state
+      ) do
     Logger.info("#{state.status}, processing challenges")
 
     # Poll until status is "ready"
@@ -347,7 +351,9 @@ defmodule AcmeClient.Poller do
 
         # Logger.debug("challenge_responses: #{inspect(challenge_responses)}")
         session =
-          for {_domain, responses} <- challenge_responses, response <- responses, reduce: session do
+          for {_domain, responses} <- challenge_responses,
+              response <- responses,
+              reduce: session do
             nil ->
               nil
 
@@ -393,7 +399,8 @@ defmodule AcmeClient.Poller do
         with {:get_csr, {:ok, csr_pem}} <- {:get_csr, apply(state.cb_mod, :get_csr, [domain])},
              {:from_pem, {:ok, csr}} <- {:from_pem, X509.CSR.from_pem(csr_pem)},
              {:to_der, csr_der} <- {:to_der, X509.CSR.to_der(csr)},
-             {:json_encode, {:ok, json}} <- {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})} do
+             {:json_encode, {:ok, json}} <-
+               {:json_encode, Jason.encode(%{csr: Base.url_encode64(csr_der)})} do
           case AcmeClient.post_as_get(session, finalize_url, json) do
             {:ok, session, %{status: 200}} ->
               Logger.debug("CSR: #{json}")
@@ -402,11 +409,16 @@ defmodule AcmeClient.Poller do
 
             {:error, session, :throttled} ->
               Logger.warning("HTTP rate limited throttled")
-              {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
 
-            {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
+              {:noreply, %{state | session: session, order: order},
+               @rate_limit_times * state.poll_interval}
+
+            {:error, session,
+             %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
               Logger.warning("HTTP rate limited /acme")
-              {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
+
+              {:noreply, %{state | session: session, order: order},
+               @rate_limit_times * state.poll_interval}
 
             {:error, session, reason} ->
               Logger.error("Error finalizing: #{inspect(reason)}")
@@ -501,11 +513,15 @@ defmodule AcmeClient.Poller do
 
           {:error, session, :throttled} ->
             Logger.warning("HTTP rate limited throttled")
-            {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
+
+            {:noreply, %{state | session: session, order: order},
+             @rate_limit_times * state.poll_interval}
 
           {:error, session, %{status: 429, body: %{"detail" => "Rate limit for '/acme' reached"}}} ->
             Logger.warning("HTTP rate limited /acme")
-            {:noreply, %{state | session: session, order: order}, @rate_limit_times * state.poll_interval}
+
+            {:noreply, %{state | session: session, order: order},
+             @rate_limit_times * state.poll_interval}
 
           err ->
             Logger.error("Error reading certificate: #{inspect(err)}")
@@ -751,7 +767,9 @@ defmodule AcmeClient.Poller do
 
   def get_domain(identifiers) do
     [domain | _rest] =
-      for %{"type" => type, "value" => value} <- identifiers, type == "dns", not String.starts_with?(value, "*.") do
+      for %{"type" => type, "value" => value} <- identifiers,
+          type == "dns",
+          not String.starts_with?(value, "*.") do
         value
       end
 
@@ -794,7 +812,8 @@ defmodule AcmeClient.Poller do
         Logger.warning("HTTP rate limited /acme")
         {:noreply, %{state | session: session}, @rate_limit_times * state.poll_interval}
 
-      {:error, session, %{status: 404, body: %{"type" => "urn:ietf:params:acme:error:malformed"} = body}} ->
+      {:error, session,
+       %{status: 404, body: %{"type" => "urn:ietf:params:acme:error:malformed"} = body}} ->
         Logger.warning("Order not found for #{url} #{inspect(body["detail"])}")
         {:noreply, %{state | session: session}, state.poll_interval}
 

@@ -42,7 +42,8 @@ defmodule AcmeClient do
   @type client :: Tesla.Env.client()
   @type reason :: any()
   @type nonce :: binary()
-  @type request_ret :: {:ok, Session.t(), term()} | {:error, Session.t(), term()} | {:error, term()}
+  @type request_ret ::
+          {:ok, Session.t(), term()} | {:error, Session.t(), term()} | {:error, term()}
   @type object_ret :: {:ok, Session.t(), map()} | {:error, Session.t(), term()} | {:error, term()}
   @type string_ret :: {:ok, Session.t(), map()} | {:error, Session.t(), term()} | {:error, term()}
 
@@ -116,7 +117,8 @@ defmodule AcmeClient do
     if session.directory do
       {:ok, %{session | client: client}}
     else
-      directory_url = opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
+      directory_url =
+        opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
 
       case Tesla.request(client, method: :get, url: directory_url) do
         {:ok, %{status: 200, body: body}} ->
@@ -132,7 +134,8 @@ defmodule AcmeClient do
   end
 
   @doc "Get nonce from server and add to session"
-  @spec new_nonce(Session.t()) :: {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
+  @spec new_nonce(Session.t()) ::
+          {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
   def new_nonce(session) do
     case ExRated.check_rate("nonce", 1000, 20) do
       {:ok, _count} ->
@@ -168,7 +171,8 @@ defmodule AcmeClient do
 
     {:ok, session} = AcmeClient.create_session()
   """
-  @spec create_session(Keyword.t()) :: {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
+  @spec create_session(Keyword.t()) ::
+          {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
   def create_session(opts \\ []) do
     key =
       case Keyword.fetch(opts, :account_key) do
@@ -185,9 +189,12 @@ defmodule AcmeClient do
       directory: opts[:directory] || Application.get_env(@app, :directory),
       account_kid: opts[:account_kid] || Application.get_env(@app, :account_kid),
       account_key: key,
-      rate_limit_id: opts[:rate_limit_id] || Application.get_env(@app, :rate_limit_id, @rate_limit_id),
-      rate_limit_scale: opts[:rate_limit_scale] || Application.get_env(@app, :rate_limit_scale, @rate_limit_scale),
-      rate_limit_limit: opts[:rate_limit_limit] || Application.get_env(@app, :rate_limit_limit, @rate_limit_limit)
+      rate_limit_id:
+        opts[:rate_limit_id] || Application.get_env(@app, :rate_limit_id, @rate_limit_id),
+      rate_limit_scale:
+        opts[:rate_limit_scale] || Application.get_env(@app, :rate_limit_scale, @rate_limit_scale),
+      rate_limit_limit:
+        opts[:rate_limit_limit] || Application.get_env(@app, :rate_limit_limit, @rate_limit_limit)
     ]
 
     with {:ok, session} <- new_session(session_opts),
@@ -209,7 +216,11 @@ defmodule AcmeClient do
   """
   @spec post_as_get(Session.t(), binary()) :: request_ret()
   def post_as_get(session, url, payload \\ "") do
-    case ExRated.check_rate(session.rate_limit_id, session.rate_limit_scale, session.rate_limit_limit) do
+    case ExRated.check_rate(
+           session.rate_limit_id,
+           session.rate_limit_scale,
+           session.rate_limit_limit
+         ) do
       {:ok, _count} ->
         %{client: client, account_key: account_key, account_kid: kid, nonce: nonce} = session
         req_headers = [{"content-type", "application/jose+json"}]
@@ -596,7 +607,8 @@ defmodule AcmeClient do
   ## Examples
     AcmeClient.create_challenge_responses(session, "https://acme-staging-v02.api.letsencrypt.org/acme/order/123/456")
   """
-  @spec create_challenge_responses(Session.t(), map()) :: {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
+  @spec create_challenge_responses(Session.t(), map()) ::
+          {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
   def create_challenge_responses(session, order) do
     key = session.account_key
 
@@ -639,7 +651,8 @@ defmodule AcmeClient do
   @spec create_order(Session.t(), Keyword.t()) :: request_ret()
   def create_order(session, opts) do
     with {:ok, session, order} <- AcmeClient.new_order(session, opts),
-         {:ok, session, authorizations} <- AcmeClient.create_challenge_responses(session, order.object) do
+         {:ok, session, authorizations} <-
+           AcmeClient.create_challenge_responses(session, order.object) do
       {:ok, session, {order, authorizations}}
     else
       err -> err
@@ -751,7 +764,10 @@ defmodule AcmeClient do
   end
 
   defp tesla_response({:ok, %{status: 200, body: body}}), do: {:ok, body}
-  defp tesla_response({:ok, %{status: status, body: body}}), do: {:error, %{status: status, body: body}}
+
+  defp tesla_response({:ok, %{status: status, body: body}}),
+    do: {:error, %{status: status, body: body}}
+
   defp tesla_response({:error, reason}), do: {:error, %{status: 0, reason: reason}}
 
   @spec request(client(), Session.t(), Keyword.t()) :: request_ret()
