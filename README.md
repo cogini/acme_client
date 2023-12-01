@@ -6,8 +6,7 @@ Elixir client for the ACME certificate management protocol
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `acme_client` to your list of dependencies in `mix.exs`:
+Add `acme_client` to the list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -17,12 +16,7 @@ def deps do
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at [https://hexdocs.pm/acme_client](https://hexdocs.pm/acme_client).
-
-Differences between RFC8555 and Let's Encrypt implementation:
-https://github.com/letsencrypt/boulder/blob/master/docs/acme-divergences.md
+## Usage
 
 ```elixir
 {:ok, account_key} = AcmeClient.generate_account_key()
@@ -40,7 +34,6 @@ account_key = AcmeClient.binary_to_key(account_key_bin)
 
 AcmeClient.create_validations(challenges, session.account_key)
 ```
-
     +-------------------+--------------------------------+--------------+
     | Action            | Request                        | Response     |
     +-------------------+--------------------------------+--------------+
@@ -85,3 +78,10 @@ unique_domains = File.read!("/tmp/domains.txt") |> String.split("\n")
 stream = AcmeClient.Cert.pipeline(unique_domains, 10_000)
 Stream.run(stream)
 ```
+
+Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
+and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
+be found at [https://hexdocs.pm/acme_client](https://hexdocs.pm/acme_client).
+
+Differences between RFC8555 and Let's Encrypt implementation:
+https://github.com/letsencrypt/boulder/blob/master/docs/acme-divergences.md
