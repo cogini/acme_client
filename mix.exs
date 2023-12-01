@@ -55,8 +55,8 @@ defmodule AcmeClient.MixProject do
     [
       {:castore, "~> 1.0"},
       {:jose, "~> 1.10"},
-      {:credo, "~> 1.5", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.30.0", only: :dev, runtime: false},
       {:ex_rated, "~> 2.0"},
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
