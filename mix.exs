@@ -64,7 +64,7 @@ defmodule AcmeClient.MixProject do
       {:jason, "~> 1.0"},
       {:junit_formatter, "~> 3.3", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
-      {:styler, "~> 0.9.6", only: [:dev, :test], runtime: false},
+      {:styler, "~> 0.10.0", only: [:dev, :test], runtime: false},
       {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
       {:x509, "~> 0.8.2"}
