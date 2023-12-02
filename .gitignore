@@ -26,3 +26,6 @@ acme_client-*.tar
 
 # Temporary files for e.g. tests
 /tmp
+
+.env
+.envrc
