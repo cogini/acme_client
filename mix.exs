@@ -44,6 +44,7 @@ defmodule AcmeClient.MixProject do
     ]
   end
 
+  defp extra_applications(:dev), do: [:hackney]
   defp extra_applications(:test), do: [:hackney]
   defp extra_applications(_), do: []
 
