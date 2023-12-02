@@ -7,6 +7,9 @@ Elixir client for the ACME certificate management protocol
 [RFC8555](https://tools.ietf.org/html/rfc8555) used by
 [Let's Encrypt](https://letsencrypt.org/) and other certification authorities.
 
+This library was designed for bulk registration, and it supports HTTP and DNS
+authorization. It has been used to register millions of certificates.
+
 ## Installation
 
 Add `acme_client` to the list of dependencies in `mix.exs`:
