@@ -75,7 +75,7 @@ defmodule AcmeClient do
 
     {:ok, account_key} = AcmeClient.generate_account_key()
     contact = "mailto:admin@example.com"
-    {:ok, session, account} = AcmeClient.new_secreate_account(account_key: account_key, contact: contact)
+    {:ok, session, account} = AcmeClient.new_account(account_key: account_key, contact: contact)
 
     {:ok, session} = AcmeClient.new_session(account_key: account_key, account_kid: account_kid)
     {:ok, session} = AcmeClient.new_nonce(session)
@@ -354,9 +354,9 @@ defmodule AcmeClient do
       contact: "mailto:admin@example.com",
       terms_of_service_agreed: true,
     ]
-    {:ok, session} = new_session()
-    {:ok, session} = new_nonce(session)
-    {:ok, session, account} = AcmeClient.create_account(opts)
+    {:ok, session} = AcmeClient.new_session()
+    {:ok, session} = AcmeClient.new_nonce(session)
+    {:ok, session, account} = AcmeClient.new_account(session, opts)
   """
   @spec new_account(Session.t(), Keyword.t()) ::
           {:ok, Session.t(), map()}
@@ -525,11 +525,13 @@ defmodule AcmeClient do
 
   Options:
 
-  * identifiers: domain(s), either binary value or type/value map
+  * identifiers: domain(s), either binary value, type/value map, or list of binary values/maps
   * not_before: datetime in RFC3339 (ISO8601) format (optional), not supported by Let's Encrypt
   * not_after: datetime in RFC3339 (ISO8601) format (optional), not supported by Let's Encrypt
 
-  `account_key` and `account_kid` must be set in session.
+  The type/value map specifies the domain, e.g., `%{type: "dns", value: "example.com"}`
+
+  `account_key` and `account_kid` must be set in the session.
 
   On success, returns map where `url` is the URL of the created order and
   `object` has its attributes. Make sure to keep track of the URL, or it may be
@@ -538,7 +540,6 @@ defmodule AcmeClient do
 
   ## Examples
     AcmeClient.new_order(session, identifiers: ["example.com", "*.example.com"])
-
   """
   @spec new_order(Session.t(), Keyword.t()) :: object_ret()
   def new_order(session, opts) do
@@ -602,10 +603,11 @@ defmodule AcmeClient do
   end
 
   @doc ~S"""
-  Create challenge responses for order.
+  Create challenge responses for order authorizations.
 
   ## Examples
-    AcmeClient.create_challenge_responses(session, "https://acme-staging-v02.api.letsencrypt.org/acme/order/123/456")
+
+    {:ok, session, authorizations} = AcmeClient.create_challenge_responses(session, order.object)
   """
   @spec create_challenge_responses(Session.t(), map()) ::
           {:ok, Session.t(), list({binary(), map()})} | {:error, term()}
@@ -627,6 +629,7 @@ defmodule AcmeClient do
   end
 
   # Generate challenge respones and add to authorization map
+  # https://letsencrypt.org/docs/challenge-types/
   @spec create_authorization_response(map(), binary()) :: map()
   defp create_authorization_response(authorization, key) do
     challenges =
@@ -647,7 +650,15 @@ defmodule AcmeClient do
 
   def challenge_add_response(challenge, _key), do: challenge
 
-  # Convenience function
+  @doc ~S"""
+  Convenience function which creates an order and authorizations.
+
+  Takes the same options as `new_order/2`
+
+  ## Examples
+
+    {:ok, session, {order, authorizations}} = AcmeClient.create_order(session, identifiers: ["example.com", "*.example.com"])
+  """
   @spec create_order(Session.t(), Keyword.t()) :: request_ret()
   def create_order(session, opts) do
     with {:ok, session, order} <- AcmeClient.new_order(session, opts),
