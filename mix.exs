@@ -40,12 +40,13 @@ defmodule AcmeClient.MixProject do
 
   def application do
     [
-      extra_applications: [:logger] ++ extra_applications(Mix.env())
+      extra_applications: [:logger] ++ extra_applications(Mix.env()),
+      mod: {AcmeClient.Application, []}
     ]
   end
 
-  defp extra_applications(:dev), do: [:hackney]
-  defp extra_applications(:test), do: [:hackney]
+  defp extra_applications(:dev), do: [:tools, :hackney]
+  defp extra_applications(:test), do: [:tools, :hackney]
   defp extra_applications(_), do: []
 
   defp elixirc_paths(:dev), do: ["lib", "test/support"]
@@ -55,16 +56,21 @@ defmodule AcmeClient.MixProject do
   defp deps do
     [
       {:castore, "~> 1.0"},
-      {:jose, "~> 1.10"},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false},
+      {:ecto_sql, "~> 3.10"},
+      {:ecto_sqlite3, "~> 0.12.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.30.0", only: :dev, runtime: false},
-      {:ex_rated, "~> 2.0"},
+      {:ex_rated, "~> 2.1"},
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
       {:hackney, "~> 1.17", only: [:dev, :test]},
-      {:jason, "~> 1.0"},
+      {:jason, "~> 1.2"},
+      {:jose, "~> 1.11"},
       {:junit_formatter, "~> 3.3", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
+      {:opentelemetry_api, "~> 1.1"},
+      {:opentelemetry_ecto, "~> 1.0"},
+      {:opentelemetry_tesla, "~> 2.3"},
       {:styler, "~> 0.10.0", only: [:dev, :test], runtime: false},
       {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
@@ -105,7 +111,10 @@ defmodule AcmeClient.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get"],
+      setup: ["deps.get", "ecto.setup"],
+      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       quality: [
         "test",
         "format --check-formatted",
@@ -113,7 +122,9 @@ defmodule AcmeClient.MixProject do
         "credo --mute-exit-status",
         # mix deps.clean --unlock --unused
         "deps.unlock --check-unused",
+        # mix deps.update
         # "hex.outdated",
+        # "hex.audit",
         "deps.audit",
         "dialyzer --quiet-with-result"
       ],
@@ -121,6 +132,7 @@ defmodule AcmeClient.MixProject do
         "format --check-formatted",
         "deps.unlock --check-unused",
         # "hex.outdated",
+        "hex.audit",
         "deps.audit",
         "credo",
         "dialyzer --quiet-with-result"
