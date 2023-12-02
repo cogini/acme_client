@@ -23,7 +23,7 @@ defmodule AcmeClient.Plug do
             |> halt()
 
           :error ->
-            Logger.warning("ACME HTTP response not found for challenge: #{inspect(challenge)})
+            Logger.warning("ACME HTTP response not found for challenge: #{inspect(challenge)}")
             return_404(conn)
         end
 
