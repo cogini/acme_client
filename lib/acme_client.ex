@@ -99,6 +99,8 @@ defmodule AcmeClient do
     middleware =
       middleware_opts ++
         [
+          Tesla.Middleware.OpenTelemetry,
+          # Tesla.Middleware.PathParams,
           {Tesla.Middleware.JSON, decode_content_types: ["application/problem+json"]},
           # engine: Jason, engine_opts: [keys: :atoms]
           {Tesla.Middleware.Logger, debug_opts}
