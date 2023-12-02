@@ -1,6 +1,22 @@
 defmodule AcmeClient.Cert do
   @moduledoc false
+  use Ecto.Schema
+
   require Logger
+
+  @primary_key {:hash, :binary_id, autogenerate: false}
+  schema "certs" do
+    field(:content, :string)
+  end
+
+  def changeset(cert, params \\ %{}) do
+    cert
+    |> Ecto.Changeset.cast(params, [
+      :hash,
+      :content
+    ])
+    |> Ecto.Changeset.validate_required([:hash, :cert])
+  end
 
   @doc ~S"""
   Create RSA private key.
