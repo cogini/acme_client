@@ -1,6 +1,7 @@
 defmodule AcmeClient do
   @moduledoc """
-  Documentation for `AcmeClient`.
+
+  Public client interface.
 
   From https://datatracker.ietf.org/doc/html/rfc8555
 
@@ -57,14 +58,16 @@ defmodule AcmeClient do
   @doc ~S"""
   Create new session connecting to ACME server."
 
-  Sets up the Tesla client library, then reads the server's directory URL,
-  which maps standard names for operations to the specific URLs on the server.
+  Sets up the Tesla client library, then makes an API call to the server's
+  directory URL which maps standard names for operations to the specific URLs
+  on the server.
 
   Options:
 
   * directory_url: Server directory URL.
-                   Defaults to staging server `https://acme-staging-v02.api.letsencrypt.org/directory`.
-                   Production is `https://acme-v02.api.letsencrypt.org/directory`
+                   Defaults to production server `https://acme-v02.api.letsencrypt.org/directory`,
+                   Staging is `https://acme-staging-v02.api.letsencrypt.org/directory`
+
   * middleware: Tesla middlewares (optional)
   * adapter: Tesla adapter (optional)
   * account_key: ACME account key (optional)
@@ -133,7 +136,14 @@ defmodule AcmeClient do
     end
   end
 
-  @doc "Get nonce from server and add to session"
+  @doc ~S"""
+  Get nonce from server and add it to session.
+
+  Each call to the server API must have a nonce to prevent replays.
+  Normally the response from the API has a nonce which is used for the next
+  call. The first call needs a nonce, so use this function to get it.
+  Similarly, if the nonce is no longer valid, this function gets a new one.
+  """
   @spec new_nonce(Session.t()) ::
           {:ok, Session.t()} | {:error, Session.t(), :throttled} | {:error, term()}
   def new_nonce(session) do
@@ -158,14 +168,20 @@ defmodule AcmeClient do
   end
 
   @doc ~S"""
-  Convenience function which creates a session configured from environment.
+  Convenience function which creates a session configured from app environment.
 
   Options:
     * directory_url (optional)
     * account_key: Account key (optional)
     * account_kid: Account key id URL (optional)
 
-  If options are not specified, they are read from the environment.
+  If options are not specified, they are read from the environment, e.g.:
+
+    config :acme_client,
+      directory_url:
+        System.get_env("ACME_CLIENT_DIRECTORY_URL") || "https://acme-staging-v02.api.letsencrypt.org/directory",
+      account_key: System.get_env("ACME_CLIENT_ACCOUNT_KEY"),
+      account_kid: System.get_env("ACME_CLIENT_ACCOUNT_KID")
 
   ## Examples
 
@@ -249,6 +265,8 @@ defmodule AcmeClient do
     end
   end
 
+  # TODO: use get_object instead
+  @spec get_order(Session.t(), binary()) :: object_ret()
   def get_order(session, url) do
     case post_as_get(session, url) do
       {:ok, session, result} ->
@@ -259,12 +277,13 @@ defmodule AcmeClient do
     end
   end
 
+  @doc "Convenience function to call URL and get result body map."
   @spec get_object(Session.t(), binary()) :: object_ret()
   def get_object(session, url) do
     case post_as_get(session, url) do
       {:ok, session, result} ->
         {:ok, session, result.body}
-
+ 
       error ->
         error
     end
@@ -291,7 +310,7 @@ defmodule AcmeClient do
     {:ok, session, Enum.reverse(results)}
   end
 
-  @doc "Get a list of URLs with post_as_get"
+  @doc "Get a list of URLs with post_as_get."
   @spec get_urls(Session.t(), list(binary())) :: {:ok, Session.t(), term()}
   def get_urls(session, urls) do
     {session, results} =
@@ -315,7 +334,7 @@ defmodule AcmeClient do
     end
   end
 
-  @doc "Make request to URL to tell server it can start processing"
+  @doc "Make request to URL to tell server it can start processing."
   @spec poke_url(Session.t(), binary()) :: request_ret()
   def poke_url(session, url) do
     post_as_get(session, url, "{}")
@@ -393,7 +412,7 @@ defmodule AcmeClient do
     {_, body} = JOSE.JWS.sign(account_key, payload, protected)
 
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
-      # returns 201 on initial create, 200 if called again
+      # Returns 201 on initial create, 200 if called again
       {:ok, %{status: status, headers: headers} = result} when status in [201, 200] ->
         session = set_nonce(session, headers)
 
