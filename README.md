@@ -214,10 +214,137 @@ end
 ]
 ```
 
-Add `AcmeClient.Plug` to your Phoenix Endpoint.
+Add `AcmeClient.Phoenix.Plug` to your Phoenix Endpoint.
 
 ```elixir
-plug AcmeClient.Plug, /var/lib/foo/acme-client/http_challenge_responses.bert
+plug AcmeClient.Phoenix.Plug, /var/lib/foo/acme-client/http_challenge_responses.bert
+```
+
+TODO:
+
+The initial order creation is synchronous, but the remaining steps involve
+communicating with the ACME service, waiting for it to take action and become
+ready, then taking the next step.
+
+That is handled by starting a `AcmeClient.Poller` process for the order.
+
+From [RFC8555](https://datatracker.ietf.org/doc/html/rfc8555):
+
+Order objects are created in the "pending" state.  Once all of the
+authorizations listed in the order object are in the "valid" state, the order
+transitions to the "ready" state.  The order moves to the "processing" state
+after the client submits a request to the order's "finalize" URL and the CA
+begins the issuance process for the certificate.  Once the certificate is
+issued, the order enters the "valid" state.  If an error occurs at any of
+these stages, the order moves to the "invalid" state.  The order also moves
+to the "invalid" state if it expires or one of its authorizations enters a
+final state other than "valid" ("expired", "revoked", or "deactivated").
+
+State Transitions for Order Objects:
+
+```
+    pending --------------+
+       |                  |
+       | All authz        |
+       | "valid"          |
+       V                  |
+     ready ---------------+
+       |                  |
+       | Receive          |
+       | finalize         |
+       | request          |
+       V                  |
+   processing ------------+
+       |                  |
+       | Certificate      | Error or
+       | issued           | Authorization failure
+       V                  V
+     valid             invalid
+```
+
+Authorization objects are created in the "pending" state. If one of the
+challenges listed in the authorization transitions to the "valid" state, then
+the authorization also changes to the "valid" state. If the client attempts
+to fulfill a challenge and fails, or if there is an error while the
+authorization is still pending, then the authorization transitions to the
+"invalid" state. Once the authorization is in the "valid" state, it can
+expire ("expired"), be deactivated by the client ("deactivated", see Section
+7.5.2), or revoked by the server ("revoked").
+
+State Transitions for Authorization Objects:
+
+```
+               pending --------------------+
+                  |                        |
+Challenge failure |                        |
+       or         |                        |
+      Error       |  Challenge valid       |
+        +---------+---------+              |
+        |                   |              |
+        V                   V              |
+     invalid              valid            |
+                            |              |
+                            |              |
+                            |              |
+             +--------------+--------------+
+             |              |              |
+             |              |              |
+      Server |       Client |   Time after |
+      revoke |   deactivate |    "expires" |
+             V              V              V
+          revoked      deactivated      expired
+```
+Challenge objects are created in the "pending" state. They transition to the
+"processing" state when the client responds to the challenge (see Section
+7.5.1) and the server begins attempting to validate that the client has
+completed the challenge. Note that within the "processing" state, the server
+may attempt to validate the challenge multiple times (see Section 8.2).
+Likewise, client requests for retries do not cause a state change.  If
+validation is successful, the challenge moves to the "valid" state; if
+there is an error, the challenge moves to the "invalid" state.
+
+State Transitions for Challenge Objects:
+
+```
+        pending
+           |
+           | Receive
+           | response
+           V
+       processing <-+
+           |   |    | Server retry or
+           |   |    | client retry request
+           |   +----+
+           |
+           |
+Successful  |   Failed
+validation  |   validation
+ +---------+---------+
+ |                   |
+ V                   V
+valid              invalid
+```
+
+State Transitions for Order Objects:
+
+```
+ pending --------------+
+    |                  |
+    | All authz        |
+    | "valid"          |
+    V                  |
+  ready ---------------+
+    |                  |
+    | Receive          |
+    | finalize         |
+    | request          |
+    V                  |
+processing ------------+
+    |                  |
+    | Certificate      | Error or
+    | issued           | Authorization failure
+    V                  V
+  valid             invalid
 ```
 
 Documentation can be found at [https://hexdocs.pm/acme_client](https://hexdocs.pm/acme_client).
