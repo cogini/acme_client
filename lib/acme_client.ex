@@ -291,26 +291,26 @@ defmodule AcmeClient do
     end
   end
 
-  @spec get_authorizations(Session.t(), list(binary())) :: {:ok, Session.t(), list(map())}
-  def get_authorizations(session, urls) do
-    {session, results} =
-      Enum.reduce(urls, {session, []}, fn url, {session, acc} ->
-        case AcmeClient.post_as_get(session, url) do
-          {:ok, session, result} ->
-            {session, [result.body | acc]}
-
-          {:error, session, reason} ->
-            Logger.error("Error reading #{url}: #{inspect(reason)}")
-            {session, acc}
-
-          {:error, reason} ->
-            Logger.error("Error reading #{url}: #{inspect(reason)}")
-            {session, acc}
-        end
-      end)
-
-    {:ok, session, Enum.reverse(results)}
-  end
+  # @spec get_authorizations(Session.t(), list(binary())) :: {:ok, Session.t(), list(map())}
+  # def get_authorizations(session, urls) do
+  #   {session, results} =
+  #     Enum.reduce(urls, {session, []}, fn url, {session, acc} ->
+  #       case AcmeClient.post_as_get(session, url) do
+  #         {:ok, session, result} ->
+  #           {session, [result.body | acc]}
+  #
+  #         {:error, session, reason} ->
+  #           Logger.error("Error reading #{url}: #{inspect(reason)}")
+  #           {session, acc}
+  #
+  #         {:error, reason} ->
+  #           Logger.error("Error reading #{url}: #{inspect(reason)}")
+  #           {session, acc}
+  #       end
+  #     end)
+  #
+  #   {:ok, session, Enum.reverse(results)}
+  # end
 
   @doc "Get a list of URLs with post_as_get."
   @spec get_urls(Session.t(), list(binary())) :: {:ok, Session.t(), term()}
@@ -324,17 +324,17 @@ defmodule AcmeClient do
     {:ok, session, Enum.reverse(results)}
   end
 
-  @doc "Get status of url"
-  @spec get_status(Session.t(), binary()) :: string_ret()
-  def get_status(session, url) do
-    case post_as_get(session, url) do
-      {:ok, session, result} ->
-        {:ok, session, result.body["status"]}
-
-      error ->
-        error
-    end
-  end
+  # @doc "Get status of url."
+  # @spec get_status(Session.t(), binary()) :: string_ret()
+  # def get_status(session, url) do
+  #   case post_as_get(session, url) do
+  #     {:ok, session, result} ->
+  #       {:ok, session, result.body["status"]}
+  #
+  #     error ->
+  #       error
+  #   end
+  # end
 
   @doc "Make request to URL to tell server it can start processing."
   @spec poke_url(Session.t(), binary()) :: request_ret()
