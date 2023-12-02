@@ -121,7 +121,7 @@ defmodule AcmeClient do
       {:ok, %{session | client: client}}
     else
       directory_url =
-        opts[:directory_url] || "https://acme-staging-v02.api.letsencrypt.org/directory"
+        opts[:directory_url] || "https://acme-v02.api.letsencrypt.org/directory"
 
       case Tesla.request(client, method: :get, url: directory_url) do
         {:ok, %{status: 200, body: body}} ->
