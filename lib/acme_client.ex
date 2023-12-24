@@ -285,7 +285,7 @@ defmodule AcmeClient do
     case post_as_get(session, url) do
       {:ok, session, result} ->
         {:ok, session, result.body}
- 
+
       error ->
         error
     end
@@ -410,7 +410,7 @@ defmodule AcmeClient do
       |> Map.new(map_opts)
       |> Jason.encode!()
 
-    protected = %{"alg" => "ES256", "nonce" => nonce, "url" => url, jwk: to_jwk(account_key)}
+    protected = %{"alg" => "ES256", "nonce" => nonce, "url" => url, jwk: key_to_jwk(account_key)}
     {_, body} = JOSE.JWS.sign(account_key, payload, protected)
 
     case Tesla.request(client, method: :post, url: url, body: body, headers: req_headers) do
@@ -773,19 +773,19 @@ defmodule AcmeClient do
     %{session | nonce: :proplists.get_value("replay-nonce", headers)}
   end
 
-  # Convert key to JWK representation used in API
-  defp to_jwk(account_key) do
+  # Convert account key to JWK representation used in API
+  defp key_to_jwk(account_key) do
     {_modules, public_map} = JOSE.JWK.to_public_map(account_key)
     public_map
   end
 
-  # Convert key struct to binary
+  @doc "Convert account_key struct to binary."
   def key_to_binary(key) do
     {_type, value} = JOSE.JWK.to_binary(key)
     value
   end
 
-  # Convert binary to key struct
+  @doc "Convert binary to account_key struct."
   def binary_to_key(bin) do
     JOSE.JWK.from_binary(bin)
   end
