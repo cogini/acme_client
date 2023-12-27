@@ -58,8 +58,8 @@ defmodule AcmeClient.MixProject do
       {:castore, "~> 1.0"},
       {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false},
-      {:ecto_sql, "~> 3.10"},
-      {:ecto_sqlite3, "~> 0.12.0", only: [:dev, :test], runtime: false},
+      # {:ecto_sql, "~> 3.10"},
+      # {:ecto_sqlite3, "~> 0.12.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.30.0", only: :dev, runtime: false},
       {:ex_rated, "~> 2.1"},
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
@@ -69,10 +69,10 @@ defmodule AcmeClient.MixProject do
       {:junit_formatter, "~> 3.3", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
       {:opentelemetry_api, "~> 1.1"},
-      {:opentelemetry_ecto, "~> 1.0"},
+      # {:opentelemetry_ecto, "~> 1.0"},
       {:opentelemetry_tesla, "~> 2.3"},
       {:styler, "~> 0.10.0", only: [:dev, :test], runtime: false},
-      {:telemetry, "~> 1.0"},
+      # {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
       {:x509, "~> 0.8.2"}
     ]
@@ -111,10 +111,11 @@ defmodule AcmeClient.MixProject do
 
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      setup: ["deps.get"],
+      # setup: ["deps.get", "ecto.setup"],
+      # "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+      # "ecto.reset": ["ecto.drop", "ecto.setup"],
+      # test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       quality: [
         "test",
         "format --check-formatted",
