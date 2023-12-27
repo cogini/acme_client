@@ -91,7 +91,7 @@ defmodule AcmeClient.Crypto do
     end
   end
 
-  defp parse_validity({:Validity, {:utcTime, not_before}, {:utcTime, not_after}}) do
+  def parse_validity({:Validity, {:utcTime, not_before}, {:utcTime, not_after}}) do
     {:ok, {utctime_to_iso8601(not_before), utctime_to_iso8601(not_after)}}
   end
 
@@ -106,35 +106,35 @@ defmodule AcmeClient.Crypto do
     "20#{yy}-#{mo}-#{dd}T#{hh}:#{mm}:#{ss}Z"
   end
 
-  @spec make_cert_chain(binary(), binary(), binary()) :: [map()]
-  def make_cert_chain(domain, certificate, pkey) do
-    [cert | chain] = String.split(certificate, "\n\n")
+  # @spec make_cert_chain(binary(), binary(), binary()) :: [map()]
+  # def make_cert_chain(domain, certificate, pkey) do
+  #   [cert | chain] = String.split(certificate, "\n\n")
+  #
+  #   {entries, hashes} = Enum.reduce(chain, {[], []}, &get_cert_hash/2)
+  #
+  #   cert = %{
+  #     domain: domain,
+  #     cert: cert,
+  #     pkey: pkey,
+  #     chain: Enum.reverse(hashes)
+  #   }
+  #
+  #   entries ++ [cert]
+  # end
 
-    {entries, hashes} = Enum.reduce(chain, {[], []}, &get_cert_hash/2)
-
-    cert = %{
-      domain: domain,
-      cert: cert,
-      pkey: pkey,
-      chain: Enum.reverse(hashes)
-    }
-
-    entries ++ [cert]
-  end
-
-  defp get_cert_hash(content, {entries, hashes}) do
-    content = String.trim(content)
-    hash = :sha |> :crypto.hash(content) |> Base.encode16()
-
-    case Repo.get(Cert, hash) do
-      nil ->
-        Logger.info("Adding chain cert: #{hash}")
-
-        Repo.insert!(%Cert{hash: hash, content: content})
-        {[%{domain: hash, cert: content} | entries], [hash | hashes]}
-
-      %Cert{content: ^content} ->
-        {entries, [hash | hashes]}
-    end
-  end
+  # defp get_cert_hash(content, {entries, hashes}) do
+  #   content = String.trim(content)
+  #   hash = :sha |> :crypto.hash(content) |> Base.encode16()
+  #
+  #   case Repo.get(Cert, hash) do
+  #     nil ->
+  #       Logger.info("Adding chain cert: #{hash}")
+  #
+  #       Repo.insert!(%Cert{hash: hash, content: content})
+  #       {[%{domain: hash, cert: content} | entries], [hash | hashes]}
+  #
+  #     %Cert{content: ^content} ->
+  #       {entries, [hash | hashes]}
+  #   end
+  # end
 end
