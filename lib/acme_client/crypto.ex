@@ -100,8 +100,8 @@ defmodule AcmeClient.Crypto do
   end
 
   defp utctime_to_iso8601(value) when is_binary(value) do
-    <<yy::binary-size(2), mo::binary-size(2), dd::binary-size(2), hh::binary-size(2), mm::binary-size(2),
-      ss::binary-size(2), "Z">> = value
+    <<yy::binary-size(2), mo::binary-size(2), dd::binary-size(2), hh::binary-size(2),
+      mm::binary-size(2), ss::binary-size(2), "Z">> = value
 
     "20#{yy}-#{mo}-#{dd}T#{hh}:#{mm}:#{ss}Z"
   end

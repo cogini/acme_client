@@ -11,7 +11,8 @@ import Config
 
 config :acme_client,
   directory_url:
-    System.get_env("ACME_CLIENT_DIRECTORY_URL") || "https://acme-staging-v02.api.letsencrypt.org/directory",
+    System.get_env("ACME_CLIENT_DIRECTORY_URL") ||
+      "https://acme-staging-v02.api.letsencrypt.org/directory",
   account_key: System.get_env("ACME_CLIENT_ACCOUNT_KEY"),
   account_kid: System.get_env("ACME_CLIENT_ACCOUNT_KID")
 
