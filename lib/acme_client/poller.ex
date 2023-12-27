@@ -248,7 +248,7 @@ defmodule AcmeClient.Poller do
         set_logger_metadata(order)
         key = session.account_key
 
-        case get_authorizations(session, order["authorizations"]) do
+        case AcmeClient.get_urls(session, order["authorizations"]) do
           {:ok, session, authorizations} ->
             Logger.debug("authorizations: #{inspect(authorizations)}")
 
@@ -556,42 +556,6 @@ defmodule AcmeClient.Poller do
   def handle_info(message, state) do
     Logger.warning("Unexpected message #{inspect(message)}")
     {:noreply, state}
-  end
-
-  @doc "Read contents of authorization URLs"
-  @spec get_authorizations(Session.t(), [binary()]) ::
-          {:ok, Session.t(), list({binary(), map()})}
-          | {:error, term()}
-  def get_authorizations(session, urls) do
-    Logger.debug("authorizations: #{inspect(urls)}")
-
-    {session, results} =
-      Enum.reduce(urls, {session, []}, fn
-        _url, {nil, results} ->
-          {nil, results}
-
-        url, {session, results} ->
-          Logger.debug("Getting authorization #{url}")
-
-          case AcmeClient.post_as_get(session, url) do
-            {:ok, session, result} ->
-              {session, [{url, result.body} | results]}
-
-            {:error, _session, reason} ->
-              {nil, [{url, {:error, reason}} | results]}
-
-              {:error, reason}
-              {nil, [{url, {:error, reason}} | results]}
-          end
-      end)
-
-    case {session, results} do
-      {nil, [{_url, error} | _rest]} ->
-        error
-
-      {session, results} ->
-        {:ok, session, results}
-    end
   end
 
   def process_authorization(%{"status" => "pending"} = authorization, {session, results}) do

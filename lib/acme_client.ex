@@ -291,37 +291,59 @@ defmodule AcmeClient do
     end
   end
 
-  # @spec get_authorizations(Session.t(), list(binary())) :: {:ok, Session.t(), list(map())}
-  # def get_authorizations(session, urls) do
+  # @doc ~S"""
+  # Get a list of URLs with post_as_get.
+  # """
+  # @spec get_urls(Session.t(), list(binary())) :: {:ok, Session.t(), term()}
+  # def get_urls(session, urls) do
   #   {session, results} =
   #     Enum.reduce(urls, {session, []}, fn url, {session, acc} ->
-  #       case AcmeClient.post_as_get(session, url) do
-  #         {:ok, session, result} ->
-  #           {session, [result.body | acc]}
-  #
-  #         {:error, session, reason} ->
-  #           Logger.error("Error reading #{url}: #{inspect(reason)}")
-  #           {session, acc}
-  #
-  #         {:error, reason} ->
-  #           Logger.error("Error reading #{url}: #{inspect(reason)}")
-  #           {session, acc}
-  #       end
+  #       {:ok, session, result} = AcmeClient.post_as_get(session, url)
+  #       {session, [{url, result.body} | acc]}
   #     end)
   #
   #   {:ok, session, Enum.reverse(results)}
   # end
 
-  @doc "Get a list of URLs with post_as_get."
-  @spec get_urls(Session.t(), list(binary())) :: {:ok, Session.t(), term()}
+  @doc ~S"""
+  Get contents of a list of URLs with post_as_get.
+
+  Reads a list of URLs with post_as_get, returning a list of results.
+  If an error occurs, stops and returns the error message.
+  """
+  @spec get_urls(Session.t(), [binary()]) ::
+          {:ok, Session.t(), list({binary(), map()})}
+          | {:error, term()}
   def get_urls(session, urls) do
+    Logger.debug("urls: #{inspect(urls)}")
+
     {session, results} =
-      Enum.reduce(urls, {session, []}, fn url, {session, acc} ->
-        {:ok, session, result} = AcmeClient.post_as_get(session, url)
-        {session, [{url, result.body} | acc]}
+      Enum.reduce(urls, {session, []}, fn
+        _url, {nil, results} ->
+          {nil, results}
+
+        url, {session, results} ->
+          Logger.debug("Getting #{url}")
+
+          case AcmeClient.post_as_get(session, url) do
+            {:ok, session, result} ->
+              {session, [{url, result.body} | results]}
+
+            {:error, _session, reason} ->
+              {nil, [{url, {:error, reason}} | results]}
+
+              {:error, reason}
+              {nil, [{url, {:error, reason}} | results]}
+          end
       end)
 
-    {:ok, session, Enum.reverse(results)}
+    case {session, results} do
+      {nil, [{_url, error} | _rest]} ->
+        error
+
+      {session, results} ->
+        {:ok, session, results}
+    end
   end
 
   # @doc "Get status of url."
