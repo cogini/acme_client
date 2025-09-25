@@ -60,7 +60,7 @@ defmodule AcmeClient.MixProject do
       {:dialyxir, "~> 1.2", only: [:dev, :test], runtime: false},
       # {:ecto_sql, "~> 3.10"},
       # {:ecto_sqlite3, "~> 0.12.0", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.30.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.38.0", only: :dev, runtime: false},
       {:ex_rated, "~> 2.1"},
       {:excoveralls, "~> 0.18.0", only: [:dev, :test], runtime: false},
       {:hackney, "~> 1.17", only: [:dev, :test]},
@@ -68,13 +68,13 @@ defmodule AcmeClient.MixProject do
       {:jose, "~> 1.11"},
       {:junit_formatter, "~> 3.3", only: [:dev, :test], runtime: false},
       {:mix_audit, "~> 2.0", only: [:dev, :test], runtime: false},
-      {:opentelemetry_api, "~> 1.1"},
+      {:opentelemetry_api, "~> 1.4"},
       # {:opentelemetry_ecto, "~> 1.0"},
       {:opentelemetry_tesla, "~> 2.3"},
-      {:styler, "~> 0.10.0", only: [:dev, :test], runtime: false},
+      {:styler, "~> 1.9", only: [:dev, :test], runtime: false},
       # {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
-      {:x509, "~> 0.8.2"}
+      {:x509, "~> 0.9.0"}
     ]
   end
 
