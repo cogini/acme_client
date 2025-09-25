@@ -19,13 +19,31 @@ erl_crash.dump
 # Also ignore archive artifacts (built via "mix archive.build").
 *.ez
 
+# Temporary files, for example, from tests.
+/tmp/
+
+/junit-reports/
+/sarif-reports/
+
+/.hex/
+/.mix/
+
 # Ignore package tarball (built via "mix hex.build").
 acme_client-*.tar
 
-.DS_Store
-
-# Temporary files for e.g. tests
-/tmp
-
+# Environment files
 .env
 .envrc
+
+
+# Editor directories and files
+/.elixir_ls
+/.lexical/
+/.vscode-server/
+/.vscode/
+
+# Editor temp files
+*.swp
+
+# macOS junk
+.DS_Store
