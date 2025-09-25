@@ -12,14 +12,6 @@ config :acme_client,
   account_key:
     "{\"alg\":\"ES256\",\"crv\":\"P-256\",\"d\":\"CBbzro67SpHuMdKDvCdWlAGrVa-FPpFQYZWSPwwiO-4\",\"kty\":\"EC\",\"use\":\"sig\",\"x\":\"pZdm5JkVjULRH0RyJFxsc8BIXm0bRMHJBsuaN5aeSIA\",\"y\":\"GUWG_WobuxqZj6xpa3FC8zLIAA5UR0nptG3QO3d2dfM\"}"
 
-config :logger,
-  level: :warning,
-  always_evaluate_messages: true
-
-config :logger, :default_formatter,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:file, :line]
-
 config :tesla, Tesla.Middleware.Logger, debug: false
 # Logging configuration is evaluated at compile time, so Tesla must be
 # recompiled for the configuration to take effect:
@@ -33,3 +25,11 @@ config :junit_formatter,
   # prepend_project_name?: true,
   include_filename?: true,
   include_file_line?: true
+
+config :logger, :default_formatter,
+  format: "$time $metadata[$level] $message\n",
+  metadata: [:file, :line]
+
+config :logger,
+  level: :warning,
+  always_evaluate_messages: true
