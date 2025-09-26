@@ -32,9 +32,9 @@ First create a session, then call the `newNonce` API to get an initial
 nonce. Use that nonce when calling the API. Take the nonce from that API response
 and use it to call another API function, and so on.
 
-Functions in this library keep track of the nonce in the session. So you make a
-an API call with a session parameter, then use the returned session to make the
-next call.
+Functions in this library keep track of the nonce in the session. Make a an API
+call with a session parameter, then use the returned session to make the next
+call.
 
 ### Accounts
 
@@ -49,11 +49,11 @@ Generate an account key:
 ```
 
 The `account_key` is a struct. After generating it, you would normally save
-it as a secret for your app. The following functions convert the struct to and
-from a binary string.
+it as a secret for your app as a string. The following functions convert the
+struct to and from a binary string.
 
 ```elixir
-# Convert key struct into string
+# Convert key struct to string
 account_key_bin = AcmeClient.key_to_binary(account_key)
 
 # Convert string to key struct
@@ -64,7 +64,7 @@ account_key = AcmeClient.binary_to_key(account_key_bin)
 Create an account on the ACME service:
 
 ```elixir
-opts = [
+session_opts = [
   account_key: account_key,
   contact: "mailto:jake@example.com",
   terms_of_service_agreed: true,
@@ -72,9 +72,11 @@ opts = [
 
 {:ok, session} = AcmeClient.new_session(account_key: account_key)
 {:ok, session} = AcmeClient.new_nonce(session)
-{:ok, session, account} = AcmeClient.new_account(session, opts)
+{:ok, session, account} = AcmeClient.new_account(session, session_opts)
 %{url: account_kid} = account
 ```
+
+Now save the `account_kid` URL as a config parameter for your app.
 
 ### Sessions
 
@@ -85,24 +87,34 @@ and gets the initial nonce.
 {:ok, session} = AcmeClient.create_session(account_key: account_key, account_kid: account_kid)
 ```
 
-If you call it with no parameters, it reads them from the application environment.
+If you call it with no parameters, it reads them from the application environment, e.g.:
 
 ```elixir
+config :acme_client,
+  directory_url:
+    System.get_env("ACME_CLIENT_DIRECTORY_URL") ||
+      "https://acme-staging-v02.api.letsencrypt.org/directory",
+  account_key: System.get_env("ACME_CLIENT_ACCOUNT_KEY"),
+  account_kid: System.get_env("ACME_CLIENT_ACCOUNT_KID")
+
 {:ok, session} = AcmeClient.create_session()
 ```
 
 ### Orders
 
-Call `AcmeClient.new_order/2` to create an "order" for a certificate.
-`account_key` and `account_kid` must be set in the session.
+Call `AcmeClient.new_order/2` to create an "order" for a certificate, i.e., a new certificate.
+`account_key` and `account_kid` must be set in the session by calling `AcmeClient.create_session()`.
 
 ```elixir
 {:ok, session, order} = AcmeClient.new_order(session, identifiers: ["example.com", "*.example.com"])
 %{url: order_url} = order
 ```
 
-The `identifiers` key is a domain or list of domains, either binary value or
-type/value map.
+The `identifiers` key is a domain or list of domains. Values can be either a
+binary value or type/value map, e.g., `%{type: "dns", value: "example.com"}`.
+Here we are making an order for a cert with both the base domain `example.com`
+and the wildcard `*.example.com`. Note that wildcard certs only work with DNS
+validation.
 
 On success, it returns a map where `url` is the URL of the created order and
 `object` has its attributes. Make sure to keep track of the URL, or it may be
@@ -115,7 +127,7 @@ The order response has an authorization URL for each domain name in the cert.
 The authorization manages challenge responses which are used to prove that you
 control the domain.
 
-Create challenge responses from the order:
+Next, create challenge responses from the order:
 
 ```elixir
 {:ok, session, authorizations} = AcmeClient.create_challenge_responses(session, order.object)
@@ -174,8 +186,9 @@ The `authorizations` response looks like this:
 
 This library supports two challenge response mechanisms, DNS and HTTP.
 
-For DNS, you create a DNS TXT record with the response to the challenge, and
-the ACME service does a lookup to verify that the response it is expecting is there.
+For DNS, create a DNS TXT record with the response to the challenge, and the
+ACME service does a lookup to verify that the response it is expecting is
+there:
 
 ```
 _acme-challenge.www.example.com. 300 IN TXT <response>
@@ -188,10 +201,10 @@ verifying that the response is there.
 http://example.com/.well-known/acme-challenge/<response>
 ```
 
-For DNS validation, get the `dns-01` responses in DNS format:
+For DNS validation, get the `dns-01` responses in DNS format, then create DNS `TXT` records.
 
 ```elixir
-for {_authorization, %{"identifier" => identifier, "challenges" => challenges}} <- authorizations,
+for {_authorization_url, %{"identifier" => identifier, "challenges" => challenges}} <- authorizations,
     %{"type" => "dns-01", "response" => response} <- challenges
 do
   {AcmeClient.dns_challenge_name(identifier), response}
@@ -203,12 +216,11 @@ end
 ]
 ```
 
-Create DNS `TXT` records.
-
-For HTTP validation, get the `http-01` responses:
+For HTTP validation, get the `http-01` responses and configure your web server to return the response
+corresponding to the request.
 
 ```elixir
-for {_authorization, %{"identifier" => %{"value" => domain}, "challenges" => challenges}} <- authorizations,
+for {_authorization_url, %{"identifier" => %{"value" => domain}, "challenges" => challenges}} <- authorizations,
     %{"type" => "http-01", "response" => response, "token" => token} <- challenges
 do
   {"http://#{domain}" <> AcmeClient.http_challenge_url(token), response}
@@ -218,6 +230,9 @@ end
    "HlCVDL_pvaxRQCnRPuo1Ho3BB2TLVUdtpF1Eq1w1yO4.n044yF8YRKXAnnngt4DzcvUvIN-Wqqn_QtnEhxwGK7g"}
 ]
 ```
+
+For HTTP validation with Phoenix, you can use the provided plug to serve the
+requests from a file.
 
 Add `AcmeClient.Phoenix.Plug` to your Phoenix Endpoint.
 
