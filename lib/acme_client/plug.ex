@@ -6,7 +6,7 @@ defmodule AcmeClient.Plug do
 
   @behaviour Plug
 
-  import Logger
+  require Logger
   import Plug.Conn
 
   @file_path Application.compile_env(
