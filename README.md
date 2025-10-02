@@ -231,13 +231,12 @@ end
 ]
 ```
 
-For HTTP validation with Phoenix, you can use the provided plug to serve the
-requests from a file.
+For HTTP validation, you can use the provided plug to serve the requests from a file.
 
-Add `AcmeClient.Phoenix.Plug` to your Phoenix Endpoint.
+Add `AcmeClient.Plug` to your Phoenix Endpoint.
 
 ```elixir
-plug AcmeClient.Phoenix.Plug, /var/lib/foo/acme-client/http_challenge_responses.bert
+plug AcmeClient.Plug, /var/lib/foo/acme-client/http_challenge_responses.bert
 ```
 
 TODO:
