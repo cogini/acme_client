@@ -9,15 +9,15 @@ defmodule AcmeClient.Plug do
   import Logger
   import Plug.Conn
 
-  @path Application.compile_env(
-          @app,
-          :http_responses_path,
-          "/var/lib/acme-client/http_challenge_responses.bert"
-        )
+  @file_path Application.compile_env(
+               @app,
+               :http_responses_path,
+               "/var/lib/acme-client/http_challenge_responses.bert"
+             )
 
   @impl true
   def init(path) when is_binary(path), do: path
-  def init(_), do: @http_challenges_path
+  def init(_), do: @file_path
 
   @impl true
   def call(%Plug.Conn{request_path: "/.well-known/acme-challenge/" <> challenge} = conn, path) do
