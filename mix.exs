@@ -71,6 +71,7 @@ defmodule AcmeClient.MixProject do
       {:opentelemetry_api, "~> 1.4"},
       # {:opentelemetry_ecto, "~> 1.0"},
       {:opentelemetry_tesla, "~> 2.3"},
+      {:plug, "~> 1.14"},
       {:styler, "~> 1.9", only: [:dev, :test], runtime: false},
       # {:telemetry, "~> 1.0"},
       {:tesla, "~> 1.4"},
